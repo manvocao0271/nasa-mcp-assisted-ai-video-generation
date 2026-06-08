@@ -50,7 +50,7 @@ class Orchestrator:
         The final yield has stage="done" and includes the path to episode_final.mp4.
         """
         yield {"stage": "data", "status": "running", "detail": "Fetching NASA data…"}
-        assets = DataAgent(self.nasa_api_key).run(user_message)
+        assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message)
         yield {"stage": "data", "status": "done", "detail": f"{len(assets)} assets fetched"}
 
         yield {"stage": "script", "status": "running", "detail": "Writing narration script…"}
