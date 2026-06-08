@@ -118,15 +118,25 @@ if user_input:
                 st.error(f"**Pipeline error:** {exc}")
                 st.stop()
 
-        # Show finished video inline
+        # Show finished video inline — assembled film or individual clips
+        clips_dir = Path("output/clips")
+        scene_clips = sorted(clips_dir.glob("scene_*.mp4")) if clips_dir.exists() else []
+
         if final_video_path and final_video_path.exists():
             video_placeholder.video(str(final_video_path))
             response_text = f"Here's your film: **{manifest.get('title', 'Episode')}**"
+        elif scene_clips:
+            title = manifest.get("title", "Episode")
+            response_text = f"**{title}** — {len(scene_clips)} scene clips generated:"
+            with video_placeholder.container():
+                for clip in scene_clips:
+                    st.caption(f"Scene {clip.stem.split('_')[-1]}")
+                    st.video(str(clip))
         else:
             response_text = (
                 "Pipeline ran successfully. "
-                "Video generation and assembly are not yet implemented — "
-                "script and storyboard have been written to `output/`."
+                "Script and storyboard written to `output/` — "
+                "video clips will appear here once generated."
             )
 
         st.markdown(response_text)
