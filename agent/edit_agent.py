@@ -23,27 +23,28 @@ FADE_DURATION = 0.5  # seconds
 class EditAgent:
     """ffmpeg-based video assembly: concat + captions + fades."""
 
-    def run(self, clips: list[Path], script: dict) -> Path:
+    def run(self, clips: list[Path], script: dict) -> Path | None:
         """Assemble clips into a single film with captions.
 
         Args:
             clips: ordered list of scene clip Paths from VideoGen.run()
             script: script dict from ScriptAgent.run()
 
-        Returns Path to the final assembled video.
+        Returns Path to the final assembled video, or None if no clips are ready.
         """
         if not clips:
-            raise ValueError("No clips provided to EditAgent")
+            return None
 
         concat_path = self._concat_clips(clips)
+        if concat_path is None:
+            return None
         final_path = self._burn_captions(concat_path, script)
         return final_path
 
-    def _concat_clips(self, clips: list[Path]) -> Path:
+    def _concat_clips(self, clips: list[Path]) -> Path | None:
         """Concatenate clips using ffmpeg concat demuxer with crossfade.
 
-        Writes a temporary concat list file, runs ffmpeg, returns Path to
-        the concatenated (uncaptioned) video.
+        Returns Path to the concatenated video, or None if ffmpeg is unavailable.
         """
         concat_list = OUTPUT_DIR / "concat_list.txt"
         concat_list.write_text(
@@ -52,33 +53,39 @@ class EditAgent:
         concat_output = OUTPUT_DIR / "concat.mp4"
 
         # TODO: replace with xfade filter for crossfade transitions between clips
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0",
-                "-i", str(concat_list),
-                "-c", "copy",
-                str(concat_output),
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-f", "concat", "-safe", "0",
+                    "-i", str(concat_list),
+                    "-c", "copy",
+                    str(concat_output),
+                ],
+                check=True,
+            )
+        except FileNotFoundError:
+            return None
         return concat_output
 
-    def _burn_captions(self, video_path: Path, script: dict) -> Path:
+    def _burn_captions(self, video_path: Path, script: dict) -> Path | None:
         """Burn narration text as subtitles into the video using ffmpeg drawtext.
 
-        Writes output/episode_final.mp4.
+        Writes output/episode_final.mp4. Returns None if ffmpeg is unavailable.
         """
         # TODO: generate an SRT/ASS subtitle file from script scenes + timing,
         # then use ffmpeg subtitles filter to burn them in.
         # For now, copy the concat output as the final video.
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", str(video_path),
-                "-c", "copy",
-                str(FINAL_VIDEO),
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-i", str(video_path),
+                    "-c", "copy",
+                    str(FINAL_VIDEO),
+                ],
+                check=True,
+            )
+        except FileNotFoundError:
+            return None
         return FINAL_VIDEO
