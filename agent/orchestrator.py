@@ -67,7 +67,8 @@ class Orchestrator:
 
         yield {"stage": "edit", "status": "running", "detail": "Assembling final film…"}
         final_path = EditAgent().run(clips, script)
-        yield {"stage": "edit", "status": "done", "detail": str(final_path)}
+        detail = str(final_path) if final_path else "Skipped — no clips ready yet"
+        yield {"stage": "edit", "status": "done", "detail": detail}
 
         manifest = {
             "user_message": user_message,
@@ -75,8 +76,8 @@ class Orchestrator:
             "assets": assets,
             "script_scenes": len(script["scenes"]),
             "clips": [str(c) for c in clips],
-            "final_video": str(final_path),
+            "final_video": str(final_path) if final_path else None,
         }
         (OUTPUT_DIR / "episode_manifest.json").write_text(json.dumps(manifest, indent=2))
 
-        yield {"stage": "done", "status": "done", "detail": str(final_path), "manifest": manifest}
+        yield {"stage": "done", "status": "done", "detail": str(final_path) if final_path else "", "manifest": manifest}

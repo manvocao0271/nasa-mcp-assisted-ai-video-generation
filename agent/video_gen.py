@@ -49,8 +49,7 @@ class VideoGen:
 
             # TODO: submit job to Qwen Cloud Wan/HappyHorse API,
             # poll until status == "completed", download video bytes,
-            # write to clip_path.
-            clips.append(clip_path)
+            # write to clip_path, then append.
 
         return clips
 

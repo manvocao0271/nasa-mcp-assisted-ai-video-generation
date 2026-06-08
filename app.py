@@ -90,7 +90,7 @@ if user_input:
                 detail = update["detail"]
 
                 if stage == "done":
-                    final_video_path = Path(detail)
+                    final_video_path = Path(detail) if detail else None
                     manifest = update.get("manifest", {})
                     status_area.update(label="Pipeline complete!", state="complete")
                 else:
@@ -109,7 +109,11 @@ if user_input:
             video_placeholder.video(str(final_video_path))
             response_text = f"Here's your film: **{manifest.get('title', 'Episode')}**"
         else:
-            response_text = "Pipeline finished. (Video generation not yet implemented.)"
+            response_text = (
+                "Pipeline ran successfully. "
+                "Video generation and assembly are not yet implemented — "
+                "script and storyboard have been written to `output/`."
+            )
 
         st.markdown(response_text)
         st.session_state.messages.append({"role": "assistant", "content": response_text})
