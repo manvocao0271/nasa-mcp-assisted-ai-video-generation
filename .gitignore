@@ -13,3 +13,6 @@ wheels/
 
 # Secrets
 .env
+
+# Generated pipeline artifacts
+output/
