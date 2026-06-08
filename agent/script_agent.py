@@ -20,14 +20,18 @@ Output schema (script dict):
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+
+from agent.qwen_client import MODEL_PLUS, QwenClient
 
 OUTPUT_DIR = Path("output")
 
 SYSTEM_PROMPT = """\
-You are a science documentary scriptwriter. Write a 3-act short-film script (~300 words total)
-grounded strictly in the NASA data provided. Each act is one scene. Be cinematic and factual.
-Return JSON matching this schema exactly:
+You are a science documentary scriptwriter. You will be shown real NASA satellite images \
+alongside structured data about them. Write a 3-act short-film script (~300 words total) \
+grounded strictly in what you see and the data provided. Be cinematic and factual.
+Return ONLY valid JSON matching this schema exactly — no markdown fences, no extra text:
 {
   "title": "<episode title>",
   "scenes": [
@@ -40,7 +44,7 @@ Return JSON matching this schema exactly:
 
 
 class ScriptAgent:
-    """Generates a 3-act narration script from NASA assets using Qwen."""
+    """Generates a 3-act narration script from NASA assets using Qwen (vision)."""
 
     def __init__(self, qwen_api_key: str) -> None:
         self.qwen_api_key = qwen_api_key
@@ -48,23 +52,71 @@ class ScriptAgent:
     def run(self, assets: dict, user_message: str) -> dict:
         """Generate script from assets. Returns script dict and writes output/script.md.
 
+        Passes real NASA image URLs to Qwen as multimodal content so the model
+        can visually ground the narration in what the images actually show.
+
         Args:
             assets: output from DataAgent.run()
             user_message: original user request for tone/context
         """
-        # TODO: call Qwen chat API with SYSTEM_PROMPT + assets JSON as user message,
-        # parse JSON response into script dict.
-        script: dict = {
-            "title": "Untitled Episode",
-            "scenes": [
-                {"act": 1, "narration": "", "mood": "epic", "data_ref": ""},
-                {"act": 2, "narration": "", "mood": "tense", "data_ref": ""},
-                {"act": 3, "narration": "", "mood": "reflective", "data_ref": ""},
-            ],
-        }
+        client = QwenClient(self.qwen_api_key, model=MODEL_PLUS)
 
-        md_lines = [f"# {script['title']}\n"]
-        for scene in script["scenes"]:
+        # Build multimodal user message: images first, then structured data text
+        content: list = []
+
+        for img in assets.get("images", [])[:3]:  # cap at 3 images to stay within context
+            url = img.get("url", "")
+            if url:
+                content.append({"type": "image_url", "image_url": {"url": url}})
+
+        # Summarise the structured data (strip heavy coordinate arrays to save tokens)
+        data_summary = {}
+        for key, val in assets.get("data", {}).items():
+            if isinstance(val, dict):
+                data_summary[key] = {
+                    k: v for k, v in val.items()
+                    if k not in ("dscovr_j2000_position", "lunar_j2000_position",
+                                 "sun_j2000_position", "attitude_quaternions", "coords")
+                }
+            else:
+                data_summary[key] = val
+
+        content.append({
+            "type": "text",
+            "text": (
+                f"User request: {user_message}\n\n"
+                f"NASA data:\n{json.dumps(data_summary, indent=2)}\n\n"
+                "Write the 3-act script JSON now."
+            ),
+        })
+
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": content},
+        ]
+
+        response = client.chat(messages)
+        raw = response.choices[0].message.content or ""
+
+        # Strip markdown fences if model added them despite instructions
+        raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+        raw = re.sub(r"\s*```$", "", raw.strip())
+
+        try:
+            script: dict = json.loads(raw)
+        except json.JSONDecodeError:
+            # Fallback: return a minimal valid structure so the pipeline continues
+            script = {
+                "title": user_message[:60],
+                "scenes": [
+                    {"act": i, "narration": "", "mood": "cinematic", "data_ref": ""}
+                    for i in range(1, 4)
+                ],
+            }
+
+        OUTPUT_DIR.mkdir(exist_ok=True)
+        md_lines = [f"# {script.get('title', 'Untitled')}\n"]
+        for scene in script.get("scenes", []):
             md_lines.append(f"## Act {scene['act']} — {scene['mood']}\n")
             md_lines.append(scene["narration"] + "\n")
         (OUTPUT_DIR / "script.md").write_text("\n".join(md_lines))
