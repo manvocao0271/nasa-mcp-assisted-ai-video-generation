@@ -1,7 +1,7 @@
 [project]
-name = "nasa-mcp"
+name = "pale-blue-dot"
 version = "0.1.0"
-description = "Model Context Protocol server exposing NASA's open APIs as agent tools."
+description = "Multi-agent system that turns real NASA data into AI-generated cinematic short films using Qwen models on Qwen Cloud."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,6 +9,7 @@ dependencies = [
     "mcp[cli]>=1.27.1",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
+    "streamlit>=1.45.0",
 ]
 
 [dependency-groups]
@@ -20,6 +21,9 @@ dev = [
 
 [project.scripts]
 nasa-mcp = "nasa_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nasa_mcp"]
 
 [build-system]
 requires = ["hatchling"]
