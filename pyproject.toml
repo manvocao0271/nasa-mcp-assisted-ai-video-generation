@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
     "mcp[cli]>=1.27.1",
+    "openai>=2.41.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
     "streamlit>=1.45.0",
@@ -14,7 +15,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "openai>=2.41.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
 ]

@@ -770,6 +770,7 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
+    { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "streamlit" },
@@ -777,7 +778,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "openai" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
@@ -786,6 +786,7 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.1" },
+    { name = "openai", specifier = ">=2.41.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "streamlit", specifier = ">=1.45.0" },
@@ -793,7 +794,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "openai", specifier = ">=2.41.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
 ]
