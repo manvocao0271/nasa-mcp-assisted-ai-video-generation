@@ -16,11 +16,11 @@ import json
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
-QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
 # Model tiers — use max for tool-calling (DataAgent), plus for text generation
-MODEL_MAX = "qwen-max"
-MODEL_PLUS = "qwen-plus"
+MODEL_MAX = "qwen3.7-max"
+MODEL_PLUS = "qwen3.7-plus"
 
 
 class QwenClient:

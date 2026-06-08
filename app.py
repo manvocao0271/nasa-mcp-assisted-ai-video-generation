@@ -15,6 +15,7 @@ from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
+from openai import AuthenticationError, APIError
 
 from agent.orchestrator import Orchestrator
 
@@ -85,24 +86,37 @@ if user_input:
         manifest: dict = {}
 
         with status_area:
-            for update in orchestrator.run(user_input):
-                stage = update["stage"]
-                detail = update["detail"]
+            try:
+                for update in orchestrator.run(user_input):
+                    stage = update["stage"]
+                    detail = update["detail"]
 
-                if stage == "done":
-                    final_video_path = Path(detail) if detail else None
-                    manifest = update.get("manifest", {})
-                    status_area.update(label="Pipeline complete!", state="complete")
-                else:
-                    icon = {
-                        "data": "🛰️",
-                        "script": "✍️",
-                        "storyboard": "🎬",
-                        "video": "🎥",
-                        "edit": "✂️",
-                    }.get(stage, "⚙️")
-                    status_label = "done" if update["status"] == "done" else "running"
-                    st.write(f"{icon} **{stage.title()}** — {detail}")
+                    if stage == "done":
+                        final_video_path = Path(detail) if detail else None
+                        manifest = update.get("manifest", {})
+                        status_area.update(label="Pipeline complete!", state="complete")
+                    else:
+                        icon = {
+                            "data": "🛰️",
+                            "script": "✍️",
+                            "storyboard": "🎬",
+                            "video": "🎥",
+                            "edit": "✂️",
+                        }.get(stage, "⚙️")
+                        st.write(f"{icon} **{stage.title()}** — {detail}")
+            except AuthenticationError:
+                status_area.update(label="Authentication failed", state="error")
+                st.error(
+                    "**Invalid Qwen API key.** "
+                    "Check that `QWEN_API_KEY` in your `.env` file contains a valid "
+                    "[DashScope API key](https://dashscope.console.aliyun.com/apiKey) "
+                    "(format: `sk-...`)."
+                )
+                st.stop()
+            except Exception as exc:
+                status_area.update(label="Pipeline error", state="error")
+                st.error(f"**Pipeline error:** {exc}")
+                st.stop()
 
         # Show finished video inline
         if final_video_path and final_video_path.exists():

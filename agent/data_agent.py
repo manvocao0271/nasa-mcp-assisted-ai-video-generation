@@ -22,11 +22,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.types import TextContent
+from openai.types.chat import ChatCompletionMessageToolCall
 
 from agent.qwen_client import MODEL_MAX, QwenClient
 
@@ -124,6 +125,8 @@ class DataAgent:
                         break  # Qwen is done calling tools
 
                     for tc in msg.tool_calls:
+                        if not isinstance(tc, ChatCompletionMessageToolCall):
+                            continue
                         tool_name = tc.function.name
                         tool_args = json.loads(tc.function.arguments or "{}")
                         tools_called.append(tool_name)
@@ -132,10 +135,9 @@ class DataAgent:
                         mcp_result = await session.call_tool(
                             tool_name, {"args": tool_args}
                         )
-                        result_text = (
-                            mcp_result.content[0].text
-                            if mcp_result.content
-                            else "{}"
+                        result_text = next(
+                            (item.text for item in mcp_result.content if isinstance(item, TextContent)),
+                            "{}",
                         )
 
                         try:
