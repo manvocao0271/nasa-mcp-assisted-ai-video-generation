@@ -12,6 +12,10 @@ EXPECTED_TOOLS = {
     "get_epic_available_dates_tool",
     "get_neo_feed_tool",
     "get_neo_lookup_tool",
+    "search_image_library_tool",
+    "get_image_asset_tool",
+    "search_exoplanets_tool",
+    "get_exoplanet_stats_tool",
 }
 
 MIN_DESCRIPTION_LENGTH = 150
