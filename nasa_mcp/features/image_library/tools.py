@@ -30,9 +30,7 @@ def register_image_library_tools(mcp: FastMCP, config: Config, cache: Cache) -> 
         - ``url``       — large JPEG suitable as a Wan video first-frame reference
         - ``thumb_url`` — small preview thumbnail
 
-        Use for any topic that needs high-quality NASA photography: Mars rover
-        surface shots, Saturn flyby imagery, Earth from ISS, deep-field Hubble
-        images, rocket launches, spacewalks, etc.
+        Use for any topic that needs high-quality NASA photography: Mars rover surface shots, Saturn flyby imagery, Earth from ISS, deep-field Hubble images, rocket launches, spacewalks, etc.
 
         Examples:
         - query="Mars surface Perseverance rover" → recent Mars landscape photos
@@ -40,6 +38,7 @@ def register_image_library_tools(mcp: FastMCP, config: Config, cache: Cache) -> 
         - query="ISS Earth orbit" → station-to-Earth vantage shots
         - query="nebula Hubble infrared" → Hubble deep-field nebulae
         """
+
         key_input = f"{args.query}|{args.page_size}|{args.year_start}|{args.year_end}"
         key = f"imglib:search:{hashlib.sha256(key_input.encode()).hexdigest()[:16]}"
         cached = cache.get(key)
@@ -69,10 +68,9 @@ def register_image_library_tools(mcp: FastMCP, config: Config, cache: Cache) -> 
         - ``original_url`` — full-resolution original (may be very large / non-JPEG)
         - ``all_urls``     — complete list of all hosted file URLs
 
-        Use this when you need the highest-quality version of an image found via
-        search_image_library_tool, or when you want to confirm the exact URL
-        before passing it to a video generation tool.
+        Use this when you need the highest-quality version of an image found via search_image_library_tool, or when you want to confirm the exact URL before passing it to a video generation tool.
         """
+
         key = f"imglib:asset:{hashlib.sha256(args.nasa_id.encode()).hexdigest()[:16]}"
         cached = cache.get(key)
         if cached is not None:

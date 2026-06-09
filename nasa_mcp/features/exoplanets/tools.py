@@ -34,9 +34,7 @@ def register_exoplanet_tools(mcp: FastMCP, config: Config, cache: Cache) -> None
         - ``st_spectype``     — host star spectral type (e.g. "G2V")
         - ``st_teff``         — host star effective temperature (K)
 
-        Use for scripts or voiceovers about specific exoplanets or exoplanet
-        demographics. Pair with search_image_library_tool to find artist's-
-        impression imagery of the system.
+        Use for scripts or voiceovers about specific exoplanets or exoplanet demographics. Pair with search_image_library_tool to find artist's impression imagery of the system.
 
         Examples:
         - query="TRAPPIST"  → all TRAPPIST-1 planets
@@ -63,8 +61,7 @@ def register_exoplanet_tools(mcp: FastMCP, config: Config, cache: Cache) -> None
         - ``by_discovery_method`` — dict mapping each discovery method to its count
           (e.g. {"Transit": 3900, "Radial Velocity": 1100, …})
 
-        Use to provide scale context in a script — e.g. "of the 5 000+ confirmed
-        exoplanets, over 75 % were found by the transit method".
+        Use to provide scale context in a script — e.g. "of the 5 000+ confirmed exoplanets, over 75 % were found by the transit method".
         """
         key = "exo:stats:global"
         cached = cache.get(key)
