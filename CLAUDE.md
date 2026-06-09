@@ -55,6 +55,14 @@ nasa_mcp/                   ← NASA MCP server (data backbone, COMPLETE)
       api.py, inputs.py, tools.py, __tests__/test_exoplanets.py
     image_library/          ← COMPLETE: search_image_library, get_image_asset
       api.py, inputs.py, tools.py, __tests__/test_image_library.py
+    mars_trek/              ← SKELETON: Mars Trek WMTS terrain / landing-site mosaics
+      api.py, inputs.py, tools.py, __tests__/test_mars_trek.py
+    donki/                  ← SKELETON: DONKI space-weather events
+      api.py, inputs.py, tools.py, __tests__/test_donki.py
+    eonet/                  ← SKELETON: EONET Earth natural events
+      api.py, inputs.py, tools.py, __tests__/test_eonet.py
+    insight/                ← SKELETON: InSight Mars weather
+      api.py, inputs.py, tools.py, __tests__/test_insight.py
 
 tests/                      ← Integration tests (no network)
   conftest.py               ← Fixtures: tmp_cache_path, test_config, cache, mcp_with_tools
@@ -68,6 +76,7 @@ tests/                      ← Integration tests (no network)
 - Each feature under `nasa_mcp/features/<name>/` has: `api.py` (httpx calls), `inputs.py` (Pydantic models), `tools.py` (FastMCP registration), `__tests__/`.
 - Tools are registered by calling `register_<feature>_tools(mcp, config, cache)` in `server.py`.
 - `agent/` and `app.py` do not exist yet — next major work.
+- The new `mars_trek/`, `donki/`, `eonet/`, and `insight/` feature folders are scaffolds only; implementations still need to be filled in.
 - Output artifacts go in `output/` (gitignored): `assets.json`, `script.md`, `storyboard.json`, `clips/`, `episode_final.mp4`, `episode_manifest.json`.
 
 ## Commands
