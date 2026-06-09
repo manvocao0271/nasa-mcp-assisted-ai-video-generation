@@ -1,0 +1,1 @@
+"""Solar Flare (FLR) sub-feature package."""

@@ -1,0 +1,1 @@
+"""Coronal Mass Ejection (CME) sub-feature package."""
