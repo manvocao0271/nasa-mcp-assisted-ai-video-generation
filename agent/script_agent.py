@@ -23,6 +23,8 @@ import json
 import re
 from pathlib import Path
 
+import httpx
+
 from agent.qwen_client import MODEL_PLUS, QwenClient
 
 OUTPUT_DIR = Path("output")
@@ -49,6 +51,22 @@ class ScriptAgent:
     def __init__(self, qwen_api_key: str) -> None:
         self.qwen_api_key = qwen_api_key
 
+    _SUPPORTED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
+
+    @classmethod
+    def _url_is_usable_image(cls, url: str) -> bool:
+        """HEAD-check that the URL has Content-Length and a supported image Content-Type.
+
+        Qwen's vision API rejects URLs without Content-Length and non-JPEG/PNG/GIF/WebP.
+        """
+        try:
+            with httpx.Client(timeout=5) as client:
+                r = client.head(url, follow_redirects=True)
+            ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+            return "content-length" in r.headers and ct in cls._SUPPORTED_IMAGE_TYPES
+        except Exception:
+            return False
+
     def run(self, assets: dict, user_message: str) -> dict:
         """Generate script from assets. Returns script dict and writes output/script.md.
 
@@ -66,7 +84,7 @@ class ScriptAgent:
 
         for img in assets.get("images", [])[:3]:  # cap at 3 images to stay within context
             url = img.get("url", "")
-            if url:
+            if url and self._url_is_usable_image(url):
                 content.append({"type": "image_url", "image_url": {"url": url}})
 
         # Summarise the structured data (strip heavy coordinate arrays to save tokens)
@@ -104,8 +122,7 @@ class ScriptAgent:
 
         try:
             script: dict = json.loads(raw)
-        except json.JSONDecodeError:
-            # Fallback: return a minimal valid structure so the pipeline continues
+        except json.JSONDecodeError:            # Fallback: return a minimal valid structure so the pipeline continues
             script = {
                 "title": user_message[:60],
                 "scenes": [
@@ -120,5 +137,6 @@ class ScriptAgent:
             md_lines.append(f"## Act {scene['act']} — {scene['mood']}\n")
             md_lines.append(scene["narration"] + "\n")
         (OUTPUT_DIR / "script.md").write_text("\n".join(md_lines))
+        (OUTPUT_DIR / "script.json").write_text(json.dumps(script, indent=2))
 
         return script

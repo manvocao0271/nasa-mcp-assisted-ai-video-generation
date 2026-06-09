@@ -41,33 +41,59 @@ class Orchestrator:
         OUTPUT_DIR.mkdir(exist_ok=True)
         (OUTPUT_DIR / "clips").mkdir(exist_ok=True)
 
-    def run(self, user_message: str) -> Generator[dict, None, None]:
+    def run(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
         """Run the full pipeline. Yields status dicts for UI streaming.
 
         Each yielded dict has the shape:
             {"stage": str, "status": "running" | "done" | "error", "detail": str}
 
+        When ``resume=True`` each stage is skipped if its output file already
+        exists on disk, so a failed run can be retried cheaply after a fix.
+
         The final yield has stage="done" and includes the path to episode_final.mp4.
         """
-        yield {"stage": "data", "status": "running", "detail": "Fetching NASA data…"}
-        assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message)
-        yield {"stage": "data", "status": "done", "detail": f"{len(assets)} assets fetched"}
+        # ── Data ──────────────────────────────────────────────────────────────
+        assets_path = OUTPUT_DIR / "assets.json"
+        if resume and assets_path.exists():
+            assets = json.loads(assets_path.read_text())
+            yield {"stage": "data", "status": "running", "detail": "Loading cached NASA data…"}
+            yield {"stage": "data", "status": "done", "detail": f"Loaded from cache ({len(assets.get('images', []))} images)"}
+        else:
+            yield {"stage": "data", "status": "running", "detail": "Fetching NASA data…"}
+            assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message)
+            yield {"stage": "data", "status": "done", "detail": f"{len(assets.get('images', []))} images fetched"}
 
-        yield {"stage": "script", "status": "running", "detail": "Writing narration script…"}
-        script = ScriptAgent(self.qwen_api_key).run(assets, user_message)
-        yield {"stage": "script", "status": "done", "detail": f"{len(script['scenes'])} scenes"}
+        # ── Script ────────────────────────────────────────────────────────────
+        script_path = OUTPUT_DIR / "script.json"
+        if resume and script_path.exists():
+            script = json.loads(script_path.read_text())
+            yield {"stage": "script", "status": "running", "detail": "Loading cached script…"}
+            yield {"stage": "script", "status": "done", "detail": f"Loaded from cache ({len(script.get('scenes', []))} scenes)"}
+        else:
+            yield {"stage": "script", "status": "running", "detail": "Writing narration script…"}
+            script = ScriptAgent(self.qwen_api_key).run(assets, user_message)
+            yield {"stage": "script", "status": "done", "detail": f"{len(script['scenes'])} scenes written"}
 
-        yield {"stage": "storyboard", "status": "running", "detail": "Generating storyboard…"}
-        storyboard = StoryboardAgent(self.qwen_api_key).run(script, assets)
-        yield {"stage": "storyboard", "status": "done", "detail": f"{len(storyboard)} scene prompts"}
+        # ── Storyboard ────────────────────────────────────────────────────────
+        storyboard_path = OUTPUT_DIR / "storyboard.json"
+        if resume and storyboard_path.exists():
+            storyboard = json.loads(storyboard_path.read_text())
+            yield {"stage": "storyboard", "status": "running", "detail": "Loading cached storyboard…"}
+            yield {"stage": "storyboard", "status": "done", "detail": f"Loaded from cache ({len(storyboard)} prompts)"}
+        else:
+            yield {"stage": "storyboard", "status": "running", "detail": "Generating storyboard…"}
+            storyboard = StoryboardAgent(self.qwen_api_key).run(script, assets)
+            yield {"stage": "storyboard", "status": "done", "detail": f"{len(storyboard)} scene prompts"}
 
-        yield {"stage": "video", "status": "running", "detail": "Generating video clips via Wan…"}
+        # ── Video ─────────────────────────────────────────────────────────────
+        yield {"stage": "video", "status": "running", "detail": "Generating video clip (Wan 2.7)…"}
         clips = VideoGen(self.qwen_api_key).run(storyboard)
         yield {"stage": "video", "status": "done", "detail": f"{len(clips)} clips generated"}
 
+        # ── Edit ──────────────────────────────────────────────────────────────
         yield {"stage": "edit", "status": "running", "detail": "Assembling final film…"}
         final_path = EditAgent().run(clips, script)
-        detail = str(final_path) if final_path else "Skipped — no clips ready yet"
+        detail = str(final_path) if final_path else "Skipped — ffmpeg not found"
         yield {"stage": "edit", "status": "done", "detail": detail}
 
         manifest = {

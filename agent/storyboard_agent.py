@@ -22,7 +22,10 @@ import json
 import re
 from pathlib import Path
 
+import httpx
+
 from agent.qwen_client import MODEL_PLUS, QwenClient
+from agent.video_gen import VideoGen
 
 OUTPUT_DIR = Path("output")
 
@@ -47,6 +50,18 @@ class StoryboardAgent:
     def __init__(self, qwen_api_key: str) -> None:
         self.qwen_api_key = qwen_api_key
 
+    _SUPPORTED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
+
+    @classmethod
+    def _url_is_usable_image(cls, url: str) -> bool:
+        try:
+            with httpx.Client(timeout=5) as client:
+                r = client.head(url, follow_redirects=True)
+            ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+            return "content-length" in r.headers and ct in cls._SUPPORTED_IMAGE_TYPES
+        except Exception:
+            return False
+
     def run(self, script: dict, assets: dict) -> list[dict]:
         """Generate one storyboard entry per scene.
 
@@ -64,7 +79,7 @@ class StoryboardAgent:
         content: list = []
         for img in images[:3]:
             url = img.get("url", "")
-            if url:
+            if url and self._url_is_usable_image(url):
                 content.append({"type": "image_url", "image_url": {"url": url}})
 
         scenes_text = "\n".join(
@@ -110,7 +125,7 @@ class StoryboardAgent:
                 "act": scene["act"],
                 "prompt": board.get("prompt", ""),
                 "ref_image_url": board.get("ref_image_url", fallback_url),
-                "duration_seconds": 5,
+                "duration_seconds": min(entry.get("duration_seconds", 10), VideoGen.MAX_DURATION),
             })
 
         OUTPUT_DIR.mkdir(exist_ok=True)
