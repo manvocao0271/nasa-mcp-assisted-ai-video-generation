@@ -37,33 +37,43 @@ class VideoGen:
             "X-DashScope-Async": "enable",
         }
 
-    def run(self, storyboard: list[dict]) -> list[Path]:
-        """Generate one clip per storyboard scene.
+    MAX_CLIPS = 1
+    MAX_DURATION = 10  # seconds
 
-        Submits jobs sequentially to respect rate limits. Caches completed
-        clips — if output/clips/scene_N.mp4 already exists it is skipped.
+    def run(self, storyboard: list[dict]) -> list[Path]:
+        """Generate up to MAX_CLIPS new clips from the storyboard.
+
+        Always writes a new uniquely-named file so clips accumulate across runs.
 
         Returns list of Path objects to the downloaded clip files.
         """
         CLIPS_DIR.mkdir(parents=True, exist_ok=True)
         clips: list[Path] = []
 
-        for entry in storyboard:
-            clip_path = CLIPS_DIR / f"scene_{entry['scene']}.mp4"
-            if clip_path.exists():
-                clips.append(clip_path)
-                continue
-
+        for entry in storyboard[: self.MAX_CLIPS]:
             prompt = entry.get("prompt", "")
             if not prompt:
                 continue
 
-            task_id = self._submit_job(prompt, entry.get("duration_seconds", 5))
+            # Pick a unique filename so clips accumulate rather than overwrite
+            clip_path = self._unique_clip_path(entry["scene"])
+            duration = min(entry.get("duration_seconds", 5), self.MAX_DURATION)
+            task_id = self._submit_job(prompt, duration)
             video_url = self._poll_job(task_id)
             self._download_clip(video_url, clip_path)
             clips.append(clip_path)
 
         return clips
+
+    @staticmethod
+    def _unique_clip_path(scene: int) -> Path:
+        """Return output/clips/scene_N.mp4, incrementing N until the name is free."""
+        candidate = CLIPS_DIR / f"scene_{scene}.mp4"
+        counter = 1
+        while candidate.exists():
+            candidate = CLIPS_DIR / f"scene_{scene}_{counter}.mp4"
+            counter += 1
+        return candidate
 
     def _submit_job(self, prompt: str, duration_seconds: int) -> str:
         """POST an async video generation job. Returns the task_id."""

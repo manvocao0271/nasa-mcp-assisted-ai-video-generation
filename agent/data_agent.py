@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 
 from mcp import ClientSession
@@ -30,6 +31,22 @@ from mcp.types import TextContent
 from openai.types.chat import ChatCompletionMessageToolCall
 
 from agent.qwen_client import MODEL_MAX, QwenClient
+
+# On Windows the ProactorEventLoop raises ConnectionResetError when the MCP
+# stdio pipe closes during shutdown.  Suppress it by patching the transport
+# before anything uses it — this is a well-known CPython / Windows issue.
+if sys.platform == "win32":
+    import asyncio.proactor_events as _pe
+
+    _orig_call_connection_lost = _pe._ProactorBasePipeTransport._call_connection_lost  # type: ignore[attr-defined]
+
+    def _patched_call_connection_lost(self, exc: Exception | None) -> None:  # type: ignore[override]
+        try:
+            _orig_call_connection_lost(self, exc)
+        except ConnectionResetError:
+            pass
+
+    _pe._ProactorBasePipeTransport._call_connection_lost = _patched_call_connection_lost  # type: ignore[attr-defined]
 
 OUTPUT_DIR = Path("output")
 MAX_TOOL_ITERATIONS = 10
