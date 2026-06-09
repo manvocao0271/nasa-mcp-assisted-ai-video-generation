@@ -81,10 +81,16 @@ class VideoGen:
         """POST an async video generation job. Returns the task_id.
 
         Uses wan2.7-i2v (image-to-video) when a valid NASA ref image URL is
-        provided — the image becomes the first frame, giving Wan accurate visual
-        grounding. Falls back to wan2.7-t2v (text-to-video) otherwise.
+        provided AND it is visually relevant to the prompt — the image becomes
+        the first frame, giving Wan accurate visual grounding.
+        Falls back to wan2.7-t2v (text-to-video) otherwise.
         """
-        if ref_image_url and self._url_is_usable_image(ref_image_url):
+        use_ref = (
+            ref_image_url
+            and self._url_is_usable_image(ref_image_url)
+            and self._ref_matches_prompt(ref_image_url, prompt)
+        )
+        if use_ref:
             model = MODEL_I2V
             inp: dict = {
                 "prompt": prompt,
@@ -112,6 +118,34 @@ class VideoGen:
         if not task_id:
             raise RuntimeError(f"No task_id in submit response: {data}")
         return task_id
+
+    @staticmethod
+    def _ref_matches_prompt(ref_url: str, prompt: str) -> bool:
+        """Heuristic: reject an APOD ref image that clearly doesn't match the prompt topic.
+
+        APOD URLs contain the image filename which often hints at the subject.
+        If the prompt is about Mars/Earth/Moon/asteroid but the URL suggests
+        a galaxy, nebula, or unrelated object, skip the ref so t2v is used.
+        """
+        prompt_lower = prompt.lower()
+        url_lower = ref_url.lower()
+
+        # Topic keywords the prompt is about
+        TOPIC_HINTS = {
+            "mars": ["mars", "martian", "rover", "curiosity", "perseverance"],
+            "earth": ["earth", "epic", "dscovr", "globe", "terra"],
+            "moon": ["moon", "lunar", "apollo", "crater"],
+            "asteroid": ["asteroid", "comet", "neo", "bennu"],
+            "sun": ["sun", "solar", "corona", "flare"],
+        }
+
+        for topic, keywords in TOPIC_HINTS.items():
+            prompt_is_about = any(k in prompt_lower for k in keywords)
+            url_matches = any(k in url_lower for k in keywords)
+            if prompt_is_about and not url_matches:
+                return False  # prompt expects this topic but URL doesn't show it
+
+        return True
 
     @staticmethod
     def _url_is_usable_image(url: str) -> bool:

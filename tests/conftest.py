@@ -9,6 +9,8 @@ from nasa_mcp.cache import Cache
 from nasa_mcp.config import Config
 from nasa_mcp.features.apod.tools import register_apod_tools
 from nasa_mcp.features.earth.tools import register_earth_tools
+from nasa_mcp.features.exoplanets.tools import register_exoplanet_tools
+from nasa_mcp.features.image_library.tools import register_image_library_tools
 from nasa_mcp.features.neo.tools import register_neo_tools
 
 
@@ -40,5 +42,7 @@ def mcp_with_tools(test_config: Config, cache: Cache) -> FastMCP:
     mcp = FastMCP("nasa-mcp-test")
     register_apod_tools(mcp, test_config, cache)
     register_earth_tools(mcp, test_config, cache)
+    register_exoplanet_tools(mcp, test_config, cache)
+    register_image_library_tools(mcp, test_config, cache)
     register_neo_tools(mcp, test_config, cache)
     return mcp
