@@ -11,16 +11,16 @@
 
 ## What it does
 
-**Pale Blue Dot** is an autonomous AI agent pipeline with a Streamlit chat interface. Type a natural language request — *"get me any photo taken on Mars and generate a 10-second video of what it is like on Mars"* — and the system builds a short cinematic film grounded entirely in real NASA data.
+**Pale Blue Dot** is an autonomous AI agent pipeline with a Streamlit chat interface. Type a natural language request — *"reconstruct a windy day on Mars using terrain and weather data"* — and the system builds a short cinematic film grounded entirely in real NASA data.
 
 The Streamlit UI feeds your message to an Orchestrator agent (Qwen on Qwen Cloud) which decides which NASA tools to call, writes a narration script from the results, generates a scene-by-scene storyboard, produces video clips via Wan / HappyHorse, and assembles them into a final film — all streamed back to your browser as it happens.
 
 1. **Chat** — type any astronomy question or video request in natural language
 2. **Watch the pipeline run** — each agent step streams status updates to the UI in real time
 3. **Get a video** — the finished film plays inline in the browser
-4. **Inspect the sources** — NASA data used (images, orbital data, exoplanet parameters) shown alongside
+4. **Inspect the sources** — NASA data used (images, orbital data, weather, exoplanet parameters) shown alongside
 
-Every frame is anchored to something real. No hallucinated planets, no invented missions.
+Every frame is anchored to something real. No hallucinated planets, no invented missions — just terrain, weather, orbital context, and event data assembled into a scene.
 
 ## System architecture
 
@@ -75,6 +75,17 @@ The `nasa_mcp/` directory contains a [Model Context Protocol](https://modelconte
 | `get_epic_images` | Full-disc Earth photos from DSCOVR's EPIC camera |
 | `get_epic_available_dates` | List all dates with EPIC Earth imagery available |
 
+### Scene reconstruction sources (planned)
+
+These are the next NASA data sources to wire into the pipeline so a scene can be reconstructed from real terrain, weather, and event context instead of generic prompts.
+
+| Source | What it adds to a reconstructed scene |
+|------|---------------------------------------|
+| Mars Trek WMTS | Mars terrain, landing-site mosaics, elevation, and camera framing context for believable surface shots |
+| DONKI | Solar flares, CMEs, geomagnetic storms, and other space-weather events that shape the visual mood of a scene |
+| EONET | Curated Earth natural events such as storms, fires, dust outbreaks, and cyclones with linked imagery and metadata |
+| InSight Mars Weather | Wind, pressure, and temperature measurements from the Martian surface for accurate local conditions |
+
 ### MCP server design
 
 - **Feature-first modules** — each NASA API domain lives under `nasa_mcp/features/<feature>/`, with API client, Pydantic input schemas, MCP tool registration, and tests co-located.
@@ -124,9 +135,11 @@ uv run streamlit run app.py
 Open `http://localhost:8501`. Type any request into the chat box, e.g.:
 
 - *"Get me any photo taken on Mars and generate a 10-second video of what it is like on Mars"*
+- *"Reconstruct a windy day on Mars using Mars Trek terrain and InSight weather data"*
 - *"Show me what happened in space on the day I was born — July 14, 1998"*
 - *"Make a short film about the next asteroid passing close to Earth"*
 - *"Generate a video about an exoplanet similar to Earth"*
+- *"Turn a DONKI solar storm or an EONET wildfire into a dramatic science scene"*
 
 Each agent step streams a status update to the UI as it runs. The finished video plays inline when complete. The NASA images and data used are shown in a source panel below the video.
 
@@ -172,11 +185,11 @@ tests/                  # Integration tests
 
 **Hackathon:** [Global AI Hackathon Series with Qwen Cloud](https://qwencloud-hackathon.devpost.com/) | **Deadline:** Jul 9, 2026 @ 5:00 pm EDT | **Prize:** $7,000 cash + $3,000 cloud credits
 
-This project is competing in **Track 2: AI Showrunner**, which requires an agent that autonomously handles the full short-drama creation pipeline: scriptwriting → storyboarding → video generation → editing. All agents must use **Qwen models via Qwen Cloud**. The backend must be deployed on **Alibaba Cloud**. The NASA MCP server acts as the grounded data backbone; real astronomical events, spacecraft imagery, and orbital data give every generated film a factual anchor that pure-fiction submissions won't have.
+This project is competing in **Track 2: AI Showrunner**, which requires an agent that autonomously handles the full short-drama creation pipeline: scriptwriting → storyboarding → video generation → editing. All agents must use **Qwen models via Qwen Cloud**. The backend must be deployed on **Alibaba Cloud**. The NASA MCP server acts as the grounded data backbone; real astronomical events, spacecraft imagery, terrain, weather, and orbital data give every generated film a factual anchor that pure-fiction submissions won't have.
 
 ### Concept
 
-**"Pale Blue Dot"** — a series of short (~60-second) space documentaries narrated as dramatic monologues. Each episode is seeded by a real NASA data event (an asteroid close approach, an APOD, a Mars sol's worth of rover photos) and rendered as a cinematic short using Wan/HappyHorse. The Qwen model orchestrates the entire pipeline; NASA MCP tools provide the factual grounding.
+**"Pale Blue Dot"** — a series of short (~60-second) space documentaries narrated as dramatic monologues. Each episode is seeded by a real NASA data event (an asteroid close approach, an APOD, a Mars sol's worth of rover photos, a Mars weather report, a solar storm, or a natural event on Earth) and rendered as a cinematic short using Wan/HappyHorse. The Qwen model orchestrates the entire pipeline; NASA MCP tools provide the factual grounding.
 
 ### Pipeline architecture
 
@@ -227,15 +240,19 @@ MCP server    → Alibaba Cloud hosted instance
 | **Video Gen** | Calls Wan/HappyHorse via Qwen Cloud per scene, polls for completion | `clips/scene_N.mp4` |
 | **Edit Agent** | Assembles clips in order, adds captions from script, applies fade transitions | `episode_final.mp4` |
 
-### Data sources → story hooks
+### Data sources → scene reconstruction hooks
 
-| NASA tool | Story hook |
+| NASA source | Story hook |
 |---|---|
 | `get_apod` (date-targeted) | Opening image / title card — "On this day in [year], humanity's eye turned to…" |
 | `get_neo_feed` | Asteroid close approach as plot inciting event |
 | `search_exoplanets` + `compare_to_earth` | "If there is another pale blue dot…" — closing monologue |
 | `search_image_library` | B-roll reference frames fed directly to Wan as `image2video` inputs |
 | `get_epic_images` | Full-disc Earth shot for opening/closing wide |
+| Mars Trek WMTS | Mars terrain plate, horizon line, landing-site geography, and topographic camera moves |
+| InSight Mars Weather | Wind-driven motion, dustiness, pressure, and temperature for Martian atmosphere scenes |
+| DONKI | Solar storm beats, aurora-style space-weather visuals, and narration about heliophysics events |
+| EONET | Storm systems, wildfires, dust outbreaks, and other real Earth event backdrops |
 
 ### Token budget strategy
 
