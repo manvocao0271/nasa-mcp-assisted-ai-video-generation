@@ -33,9 +33,9 @@ async def search_exoplanets(
 ) -> list[dict]:
     """Search confirmed exoplanets by name, host star, or discovery method.
 
-    Uses a case-insensitive LIKE match against planet name and host star name.
-    Returns up to *limit* records sorted by discovery year (newest first).
+    Uses a case-insensitive LIKE match against planet name and host star name. Returns up to *limit* records sorted by discovery year (newest first).
     """
+
     # Escape single quotes to prevent ADQL injection
     safe_q = query.replace("'", "''")
     adql = (
@@ -82,9 +82,9 @@ async def search_exoplanets(
 async def get_exoplanet_stats() -> dict:
     """Return aggregate statistics from the confirmed exoplanet catalog.
 
-    Counts by discovery method and total confirmed planet count — useful
-    for context in scripts about exoplanets.
+    Counts by discovery method and total confirmed planet count — useful for context in scripts about exoplanets.
     """
+
     adql = (
         "SELECT discoverymethod, COUNT(*) as count "
         "FROM ps "

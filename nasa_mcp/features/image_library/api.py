@@ -69,9 +69,9 @@ async def search_image_library(
 ) -> list[dict]:
     """Search the NASA Image and Video Library for images matching *query*.
 
-    Returns up to *page_size* image records, each with a usable ``url``
-    pointing to a large JPEG suitable as a Wan first-frame reference.
+    Returns up to *page_size* image records, each with a usable ``url`` pointing to a large JPEG suitable as a Wan first-frame reference.
     """
+
     params: dict[str, str | int] = {
         "q": query,
         "media_type": "image",
@@ -107,9 +107,9 @@ async def search_image_library(
 async def get_image_asset(config: Config, nasa_id: str) -> dict:
     """Retrieve all available size/format URLs for a single NASA image asset.
 
-    Returns a dict with ``nasa_id``, ``large_url``, ``original_url``,
-    ``medium_url``, ``thumb_url``, and ``all_urls`` (full list).
+    Returns a dict with ``nasa_id``, ``large_url``, ``original_url``, ``medium_url``, ``thumb_url``, and ``all_urls`` (full list).
     """
+
     url = f"{_ASSET_URL}/{nasa_id}"
 
     for attempt in range(3):
