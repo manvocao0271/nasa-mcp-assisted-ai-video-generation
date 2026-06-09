@@ -51,11 +51,10 @@ nasa_mcp/                   ← NASA MCP server (data backbone, COMPLETE)
       api.py, inputs.py, tools.py, __tests__/test_earth.py
     neo/                    ← COMPLETE: get_neo_feed, get_neo_lookup
       api.py, inputs.py, tools.py, __tests__/test_neo.py
-    mars_rovers/            ← BROKEN (upstream NASA proxy archived)
-      api.py, inputs.py, tools.py, __tests__/test_mars_rovers.py
-      ⚠ NOT registered in server.py. Fallback: search_image_library
-    exoplanets/             ← STUB (__init__.py only)
-    image_library/          ← STUB (__init__.py only)
+    exoplanets/             ← COMPLETE: search_exoplanets, get_exoplanet_stats
+      api.py, inputs.py, tools.py, __tests__/test_exoplanets.py
+    image_library/          ← COMPLETE: search_image_library, get_image_asset
+      api.py, inputs.py, tools.py, __tests__/test_image_library.py
 
 tests/                      ← Integration tests (no network)
   conftest.py               ← Fixtures: tmp_cache_path, test_config, cache, mcp_with_tools
@@ -68,8 +67,6 @@ tests/                      ← Integration tests (no network)
 
 - Each feature under `nasa_mcp/features/<name>/` has: `api.py` (httpx calls), `inputs.py` (Pydantic models), `tools.py` (FastMCP registration), `__tests__/`.
 - Tools are registered by calling `register_<feature>_tools(mcp, config, cache)` in `server.py`.
-- Mars rovers are intentionally NOT registered in `server.py` — keep it that way until upstream is fixed.
-- `exoplanets/` and `image_library/` are stub directories for planned features.
 - `agent/` and `app.py` do not exist yet — next major work.
 - Output artifacts go in `output/` (gitignored): `assets.json`, `script.md`, `storyboard.json`, `clips/`, `episode_final.mp4`, `episode_manifest.json`.
 
@@ -92,7 +89,7 @@ uv run mcp dev nasa_mcp/server.py  # MCP Inspector at localhost:6274
 
 ## Registered MCP tools (as of now)
 
-`get_apod_tool`, `search_apod_tool`, `get_epic_images_tool`, `get_epic_available_dates_tool`, `get_neo_feed_tool`, `get_neo_lookup_tool`
+`get_apod_tool`, `search_apod_tool`, `get_epic_images_tool`, `get_epic_available_dates_tool`, `get_neo_feed_tool`, `get_neo_lookup_tool`, `search_image_library_tool`, `get_image_asset_tool`, `search_exoplanets_tool`, `get_exoplanet_stats_tool`
 
 ## What does NOT exist yet
 

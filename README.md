@@ -75,8 +75,6 @@ The `nasa_mcp/` directory contains a [Model Context Protocol](https://modelconte
 | `get_epic_images` | Full-disc Earth photos from DSCOVR's EPIC camera |
 | `get_epic_available_dates` | List all dates with EPIC Earth imagery available |
 
-> **Mars rover tools** (`get_rover_photos`, `get_rover_manifest`) are implemented but currently return a service-unavailable error — NASA's upstream proxy ([corincerami/mars-photo-api](https://github.com/corincerami/mars-photo-api)) has been archived. The Image Library (`search_image_library`) is the fallback for rover-era photos.
-
 ### MCP server design
 
 - **Feature-first modules** — each NASA API domain lives under `nasa_mcp/features/<feature>/`, with API client, Pydantic input schemas, MCP tool registration, and tests co-located.
@@ -154,7 +152,6 @@ nasa_mcp/               # NASA MCP server (data backbone)
     apod/               # Astronomy Picture of the Day
     earth/              # EPIC satellite imagery
     neo/                # Near-Earth Objects
-    mars_rovers/        # Mars rover photos (upstream issue — see Known risks)
     exoplanets/         # Exoplanet Archive
     image_library/      # NASA Image & Video Library
   cache.py              # SQLite TTL cache
@@ -269,7 +266,6 @@ Track 2 has the highest token allowance of all tracks, but still enforces a ceil
 - [ ] **M7 — Orchestrator loop** — Full pipeline runs end-to-end with token-budget guard
 - [ ] **M8 — Streamlit UI** — `app.py` chat interface with per-step status streaming, inline video player, and NASA source panel
 - [ ] **M9 — Alibaba Cloud deployment** — MCP server + Streamlit app deployed to Alibaba Cloud ECS; proof-of-deployment recording created
-- [ ] **M10 — Mars rover unblock** — Investigate `corincerami/mars-photo-api` alternative or proxy; rover footage is the most cinematic NASA source
 
 ### Submission checklist
 
@@ -286,7 +282,6 @@ Track 2 has the highest token allowance of all tracks, but still enforces a ceil
 
 | Risk | Mitigation |
 |---|---|
-| Mars rover API still broken | Fall back to Image Library (`search_image_library`) for rover-era photos |
 | Wan/HappyHorse rate limits | Queue scenes sequentially; cache completed clips to avoid re-generation |
 | Token budget overrun | Structured artifact handoffs + scene count cap (see above) |
 | Video gen latency | Async polling; Edit Agent starts assembly as soon as first clip is ready |

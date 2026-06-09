@@ -8,7 +8,6 @@ from nasa_mcp.features.apod.tools import register_apod_tools
 from nasa_mcp.features.earth.tools import register_earth_tools
 from nasa_mcp.features.exoplanets.tools import register_exoplanet_tools
 from nasa_mcp.features.image_library.tools import register_image_library_tools
-# from nasa_mcp.features.mars_rovers.tools import register_mars_rover_tools # deprecated
 from nasa_mcp.features.neo.tools import register_neo_tools
 
 mcp = FastMCP("nasa-mcp")
@@ -23,7 +22,6 @@ def register_tools() -> None:
     register_earth_tools(mcp, config, cache)
     register_exoplanet_tools(mcp, config, cache)
     register_image_library_tools(mcp, config, cache)
-    # register_mars_rover_tools(mcp, config, cache)
     register_neo_tools(mcp, config, cache)
 
 
