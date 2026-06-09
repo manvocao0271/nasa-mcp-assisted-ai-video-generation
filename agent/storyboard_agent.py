@@ -29,18 +29,9 @@ from agent.video_gen import VideoGen
 
 OUTPUT_DIR = Path("output")
 
-SYSTEM_PROMPT = """\
-You are a cinematographer writing image-to-video prompts for Wan 2.7, a photorealistic \
-video generation model. You will be shown real NASA satellite images and the narration \
-script for each act. For each scene, write a single visual prompt of ≤80 tokens that \
-describes exactly what the camera sees — lighting, camera angle, subject, and motion. \
-Do NOT reproduce the narration; describe only the visuals.
-Return ONLY a JSON array — no markdown fences, no extra text:
-[
-  {"scene": 1, "prompt": "...", "ref_image_url": "<pick the most relevant URL from images>"},
-  {"scene": 2, "prompt": "...", "ref_image_url": "..."},
-  {"scene": 3, "prompt": "...", "ref_image_url": "..."}
-]
+SYSTEM_PROMPT = """
+You are a cinematographer writing an image-to-video prompt for Wan 2.7, a photorealistic video generation model. You will be shown real NASA images and a narration script. Write a single visual prompt of ≤80 tokens describing what the camera sees — lighting, camera angle, subject, and motion. Do NOT reproduce narration text; describe only the visuals. Pick the most relevant NASA image URL as the reference frame. Return ONLY a JSON object — no markdown fences, no extra text:
+{"prompt": "...", "ref_image_url": "<most relevant URL from the images provided>"}
 """
 
 
@@ -93,8 +84,8 @@ class StoryboardAgent:
             "text": (
                 f"Available NASA image URLs:\n"
                 + "\n".join(f"  - {u}" for u in image_urls)
-                + f"\n\nScript scenes:\n{scenes_text}\n\n"
-                "Write the storyboard JSON array now."
+                + f"\n\nScript (all acts combined):\n{scenes_text}\n\n"
+                "Write the storyboard JSON object now."
             ),
         })
 
@@ -110,23 +101,18 @@ class StoryboardAgent:
         raw = re.sub(r"\s*```$", "", raw.strip())
 
         try:
-            boards: list[dict] = json.loads(raw)
+            board: dict = json.loads(raw)
         except json.JSONDecodeError:
-            boards = []
+            board = {}
 
-        # Merge with script metadata; fill gaps if model returned fewer entries
-        scenes = script.get("scenes", [])
-        storyboard: list[dict] = []
-        for i, scene in enumerate(scenes):
-            board = boards[i] if i < len(boards) else {}
-            fallback_url = images[i]["url"] if i < len(images) else ""
-            storyboard.append({
-                "scene": i + 1,
-                "act": scene["act"],
-                "prompt": board.get("prompt", ""),
-                "ref_image_url": board.get("ref_image_url", fallback_url),
-                "duration_seconds": min(entry.get("duration_seconds", 10), VideoGen.MAX_DURATION),
-            })
+        fallback_url = images[0]["url"] if images else ""
+        storyboard = [{
+            "scene": 1,
+            "act": 1,
+            "prompt": board.get("prompt", ""),
+            "ref_image_url": board.get("ref_image_url", fallback_url),
+            "duration_seconds": VideoGen.MAX_DURATION,
+        }]
 
         OUTPUT_DIR.mkdir(exist_ok=True)
         (OUTPUT_DIR / "storyboard.json").write_text(json.dumps(storyboard, indent=2))

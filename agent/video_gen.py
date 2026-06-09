@@ -21,7 +21,8 @@ _API_BASE = "https://dashscope-intl.aliyuncs.com/api/v1"
 _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
-MODEL = "wan2.7-t2v"
+MODEL_T2V = "wan2.7-t2v"   # text-to-video fallback (no ref image)
+MODEL_I2V = "wan2.7-i2v"   # image-to-video (NASA first frame → animated clip)
 MAX_POLL_SECONDS = 600  # 10 min timeout per clip
 
 
@@ -55,10 +56,11 @@ class VideoGen:
             if not prompt:
                 continue
 
+            ref_url = entry.get("ref_image_url", "")
             # Pick a unique filename so clips accumulate rather than overwrite
             clip_path = self._unique_clip_path(entry["scene"])
             duration = min(entry.get("duration_seconds", 5), self.MAX_DURATION)
-            task_id = self._submit_job(prompt, duration)
+            task_id = self._submit_job(prompt, duration, ref_image_url=ref_url)
             video_url = self._poll_job(task_id)
             self._download_clip(video_url, clip_path)
             clips.append(clip_path)
@@ -75,14 +77,28 @@ class VideoGen:
             counter += 1
         return candidate
 
-    def _submit_job(self, prompt: str, duration_seconds: int) -> str:
-        """POST an async video generation job. Returns the task_id."""
+    def _submit_job(self, prompt: str, duration_seconds: int, ref_image_url: str = "") -> str:
+        """POST an async video generation job. Returns the task_id.
+
+        Uses wan2.7-i2v (image-to-video) when a valid NASA ref image URL is
+        provided — the image becomes the first frame, giving Wan accurate visual
+        grounding. Falls back to wan2.7-t2v (text-to-video) otherwise.
+        """
+        if ref_image_url and self._url_is_usable_image(ref_image_url):
+            model = MODEL_I2V
+            inp: dict = {
+                "prompt": prompt,
+                "media": [{"type": "first_frame", "url": ref_image_url}],
+            }
+        else:
+            model = MODEL_T2V
+            inp = {"prompt": prompt}
+
         body = {
-            "model": MODEL,
-            "input": {"prompt": prompt},
+            "model": model,
+            "input": inp,
             "parameters": {
                 "resolution": "720P",
-                "ratio": "16:9",
                 "duration": max(2, min(duration_seconds, 15)),
                 "prompt_extend": True,
             },
@@ -96,6 +112,18 @@ class VideoGen:
         if not task_id:
             raise RuntimeError(f"No task_id in submit response: {data}")
         return task_id
+
+    @staticmethod
+    def _url_is_usable_image(url: str) -> bool:
+        """Check that the URL serves a supported image format with Content-Length."""
+        _SUPPORTED = ("image/jpeg", "image/png", "image/gif", "image/webp")
+        try:
+            with httpx.Client(timeout=5) as client:
+                r = client.head(url, follow_redirects=True)
+            ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+            return "content-length" in r.headers and ct in _SUPPORTED
+        except Exception:
+            return False
 
     def _poll_job(self, task_id: str) -> str:
         """Poll the task endpoint until SUCCEEDED. Returns the video_url."""

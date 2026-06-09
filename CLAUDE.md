@@ -4,7 +4,7 @@ Quick-reference for Claude to avoid re-scanning the repo. Read this first.
 
 ## Project in one line
 
-Multi-agent pipeline: user types a natural language astronomy request → Qwen (Qwen Cloud) orchestrates NASA MCP tools → script → storyboard → Wan/HappyHorse video clips → ffmpeg assembled film → Streamlit UI.
+Multi-agent pipeline: user types a natural language astronomy request → Qwen (Qwen Cloud) orchestrates NASA MCP tools → script → storyboard → Wan 2.7 video clip → Streamlit UI.
 
 ## Stack
 
@@ -37,7 +37,7 @@ agent/                      ← Multi-agent pipeline (TO CREATE)
   script_agent.py           ← 3-act narration from assets.json → script.md
   storyboard_agent.py       ← Visual prompts + NASA ref frames → storyboard.json
   video_gen.py              ← Wan/HappyHorse Qwen Cloud client → clips/
-  edit_agent.py             ← ffmpeg: concat + captions + fades → episode_final.mp4
+  video_gen.py              ← Wan 2.7 Qwen Cloud client → output/clips/scene_N.mp4
 
 nasa_mcp/                   ← NASA MCP server (data backbone, COMPLETE)
   server.py                 ← FastMCP entry point; registers apod, earth, neo tools
