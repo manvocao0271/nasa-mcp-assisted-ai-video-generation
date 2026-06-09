@@ -19,6 +19,7 @@ Output schema (script dict):
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from pathlib import Path
@@ -55,17 +56,36 @@ class ScriptAgent:
 
     @classmethod
     def _url_is_usable_image(cls, url: str) -> bool:
-        """HEAD-check that the URL has Content-Length and a supported image Content-Type.
-
-        Qwen's vision API rejects URLs without Content-Length and non-JPEG/PNG/GIF/WebP.
-        """
+        """HEAD-check that the URL returns a supported image Content-Type."""
         try:
-            with httpx.Client(timeout=5) as client:
+            with httpx.Client(timeout=8) as client:
                 r = client.head(url, follow_redirects=True)
             ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
-            return "content-length" in r.headers and ct in cls._SUPPORTED_IMAGE_TYPES
+            return r.status_code < 400 and ct in cls._SUPPORTED_IMAGE_TYPES
         except Exception:
             return False
+
+    @classmethod
+    def _fetch_image_as_data_uri(cls, url: str) -> str | None:
+        """Download *url* and return a base64 data URI Qwen can always ingest.
+
+        Qwen's multimodal API cannot reach many NASA asset servers (redirects,
+        missing Content-Length, access restrictions).  Encoding the image bytes
+        locally as a data URI guarantees delivery regardless of the origin host.
+        Returns None if the download fails or the content is not an image.
+        """
+        try:
+            with httpx.Client(timeout=20, follow_redirects=True) as client:
+                r = client.get(url)
+            if r.status_code >= 400:
+                return None
+            ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+            if ct not in cls._SUPPORTED_IMAGE_TYPES:
+                return None
+            b64 = base64.b64encode(r.content).decode()
+            return f"data:{ct};base64,{b64}"
+        except Exception:
+            return None
 
     def run(self, assets: dict, user_message: str) -> dict:
         """Generate script from assets. Returns script dict and writes output/script.md.
@@ -84,7 +104,14 @@ class ScriptAgent:
 
         for img in assets.get("images", [])[:3]:  # cap at 3 images to stay within context
             url = img.get("url", "")
-            if url and self._url_is_usable_image(url):
+            if not url:
+                continue
+            # Encode as data URI so Qwen can always ingest regardless of origin server
+            data_uri = self._fetch_image_as_data_uri(url)
+            if data_uri:
+                content.append({"type": "image_url", "image_url": {"url": data_uri}})
+            elif self._url_is_usable_image(url):
+                # Fallback: try passing the URL directly (works for some NASA servers)
                 content.append({"type": "image_url", "image_url": {"url": url}})
 
         # Summarise the structured data (strip heavy coordinate arrays to save tokens)
