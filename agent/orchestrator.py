@@ -39,28 +39,35 @@ class Orchestrator:
         OUTPUT_DIR.mkdir(exist_ok=True)
         (OUTPUT_DIR / "clips").mkdir(exist_ok=True)
 
-    def run(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
-        """Run the full pipeline. Yields status dicts for UI streaming.
+    def fetch_data(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
+        """Run only the data stage. Yields status dicts.
 
-        Each yielded dict has the shape:
-            {"stage": str, "status": "running" | "done" | "error", "detail": str}
-
-        When ``resume=True`` each stage is skipped if its output file already
-        exists on disk, so a failed run can be retried cheaply after a fix.
-
-        The final yield has stage="done" and includes the path to episode_final.mp4.
+        The final yield has stage="data", status="done", and an "assets" key
+        containing the full assets dict so the caller can present images to
+        the user before proceeding.
         """
-        # ── Data ──────────────────────────────────────────────────────────────
         assets_path = OUTPUT_DIR / "assets.json"
         if resume and assets_path.exists():
             assets = json.loads(assets_path.read_text())
             yield {"stage": "data", "status": "running", "detail": "Loading cached NASA data…"}
-            yield {"stage": "data", "status": "done", "detail": f"Loaded from cache ({len(assets.get('images', []))} images)"}
+            yield {"stage": "data", "status": "done",
+                   "detail": f"Loaded from cache ({len(assets.get('images', []))} images)",
+                   "assets": assets}
         else:
             yield {"stage": "data", "status": "running", "detail": "Fetching NASA data…"}
             assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message)
-            yield {"stage": "data", "status": "done", "detail": f"{len(assets.get('images', []))} images fetched"}
+            yield {"stage": "data", "status": "done",
+                   "detail": f"{len(assets.get('images', []))} images fetched",
+                   "assets": assets}
 
+    def run_pipeline(self, user_message: str, assets: dict, resume: bool = False) -> Generator[dict, None, None]:
+        """Run script → storyboard → video from pre-fetched assets.
+
+        ``assets["images"]`` should already be filtered to the user's selected
+        images before calling this method.
+
+        Yields status dicts.  The final yield has stage="done".
+        """
         # ── Script ────────────────────────────────────────────────────────────
         script_path = OUTPUT_DIR / "script.json"
         if resume and script_path.exists():
@@ -99,3 +106,11 @@ class Orchestrator:
         (OUTPUT_DIR / "episode_manifest.json").write_text(json.dumps(manifest, indent=2))
 
         yield {"stage": "done", "status": "done", "detail": str(clip_path) if clip_path else "", "manifest": manifest}
+
+    def run(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
+        """Convenience wrapper: fetch_data → run_pipeline in one call."""
+        assets: dict = {}
+        for update in self.fetch_data(user_message, resume=resume):
+            assets = update.get("assets", assets)
+            yield update
+        yield from self.run_pipeline(user_message, assets, resume=resume)
