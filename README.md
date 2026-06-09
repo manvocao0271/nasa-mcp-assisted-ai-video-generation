@@ -27,14 +27,14 @@ Every frame is anchored to something real. No hallucinated planets, no invented 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     Streamlit Web UI                                │
-│  chat input → pipeline status stream → inline video player         │
+│  chat input → pipeline status stream → inline video player          │
 │  + NASA source panel (images, data used)                            │
 └────────────────────────┬────────────────────────────────────────────┘
                          │ user message
 ┌────────────────────────▼────────────────────────────────────────────┐
 │                        Orchestrator Agent                           │
 │  (Qwen via Qwen Cloud API + nasa-mcp MCP tools, token-budget loop)  │
-└──────┬──────────────────┬──────────────────┬────┘
+└──────┬──────────────────┬──────────────────┬────────────────────────┘
        │                  │                  │
        ▼                  ▼                  ▼
 ┌─────────────┐  ┌────────────────┐  ┌─────────────────┐
@@ -45,7 +45,7 @@ Every frame is anchored to something real. No hallucinated planets, no invented 
 │ calls →     │  │ real NASA data │  │ frame attached  │
 │ raw assets  │  └────────────────┘  └────────┬────────┘
 └─────────────┘                               │
-                                ┌─────────────▼──────────────┐
+                                ┌─────────────▼───────────────┐
                                 │  Wan 2.7 (i2v / t2v)        │
                                 │  (Qwen Cloud video gen)     │
                                 │  one 10-second clip         │
@@ -187,16 +187,16 @@ This project is competing in **Track 2: AI Showrunner**, which requires an agent
 └──────┬──────────────────┬──────────────────┬───────────────────┬────┘
        │                  │                  │                   │
        ▼                  ▼                  ▼                   ▼
-┌─────────────┐  ┌────────────────┐  ┌─────────────────┐  ┌──────────┐
+┌─────────────┐  ┌────────────────┐  ┌─────────────────┐  ┌───────────┐
 │  Data Agent │  │ Script Agent   │  │ Storyboard Agent│  │ Edit Agent│
-│             │  │                │  │                 │  │          │
-│ nasa-mcp    │  │ Scene / act    │  │ Visual prompt   │  │ Assembly │
-│ MCP tool    │  │ breakdown,     │  │ per scene,      │  │ ordering,│
-│ calls →     │  │ narration,     │  │ NASA image as   │  │ music,   │
-│ raw assets  │  │ dialogue       │  │ reference frame │  │ captions │
-└─────────────┘  └────────────────┘  └────────┬────────┘  └──────────┘
+│             │  │                │  │                 │  │           │
+│ nasa-mcp    │  │ Scene / act    │  │ Visual prompt   │  │ Assembly  │
+│ MCP tool    │  │ breakdown,     │  │ per scene,      │  │ ordering, │
+│ calls →     │  │ narration,     │  │ NASA image as   │  │ music,    │
+│ raw assets  │  │ dialogue       │  │ reference frame │  │ captions  │
+└─────────────┘  └────────────────┘  └────────┬────────┘  └───────────┘
                                               │
-                                ┌─────────────▼──────────────┐
+                                ┌─────────────▼───────────────┐
                                 │  Video Gen (Wan / HappyHorse│
                                 │  via Qwen Cloud)            │
                                 │  one clip per scene         │
