@@ -21,8 +21,8 @@ _API_BASE = "https://dashscope-intl.aliyuncs.com/api/v1"
 _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
-MODEL_T2V = "wan2.7-t2v"   # text-to-video fallback (no ref image)
-MODEL_I2V = "wan2.7-i2v"   # image-to-video (NASA first frame → animated clip)
+MODEL_T2V = "happyhorse-1.0-t2v"      # text-to-video (no ref image)
+MODEL_I2V = "wan2.7-i2v-2026-04-25"  # image-to-video (NASA first frame → animated clip)
 MAX_POLL_SECONDS = 600  # 10 min timeout per clip
 
 
@@ -111,7 +111,10 @@ class VideoGen:
         }
         with httpx.Client(timeout=30) as client:
             resp = client.post(_SUBMIT_URL, json=body, headers=self._headers)
-            resp.raise_for_status()
+            if not resp.is_success:
+                raise RuntimeError(
+                    f"Video submit failed {resp.status_code}: {resp.text}"
+                )
             data = resp.json()
 
         task_id = data.get("output", {}).get("task_id")
@@ -149,13 +152,24 @@ class VideoGen:
 
     @staticmethod
     def _url_is_usable_image(url: str) -> bool:
-        """Check that the URL serves a supported image format with Content-Length."""
+        """Check that the URL serves a supported image format AND is reachable by Wan's servers.
+
+        Some NASA hosts (images-assets.nasa.gov) are inaccessible from Wan's
+        remote download infrastructure even though they respond to local HEAD
+        requests.  These domains are blocklisted so we fall back to t2v.
+        """
         _SUPPORTED = ("image/jpeg", "image/png", "image/gif", "image/webp")
+        # Domains confirmed unreachable by Wan's video generation servers
+        _WAN_BLOCKED_DOMAINS = (
+            "images-assets.nasa.gov",
+        )
+        if any(blocked in url for blocked in _WAN_BLOCKED_DOMAINS):
+            return False
         try:
-            with httpx.Client(timeout=5) as client:
+            with httpx.Client(timeout=8) as client:
                 r = client.head(url, follow_redirects=True)
             ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
-            return "content-length" in r.headers and ct in _SUPPORTED
+            return r.status_code < 400 and ct in _SUPPORTED
         except Exception:
             return False
 

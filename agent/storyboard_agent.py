@@ -18,6 +18,7 @@ Output schema (output/storyboard.json):
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from pathlib import Path
@@ -46,12 +47,28 @@ class StoryboardAgent:
     @classmethod
     def _url_is_usable_image(cls, url: str) -> bool:
         try:
-            with httpx.Client(timeout=5) as client:
+            with httpx.Client(timeout=8) as client:
                 r = client.head(url, follow_redirects=True)
             ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
-            return "content-length" in r.headers and ct in cls._SUPPORTED_IMAGE_TYPES
+            return r.status_code < 400 and ct in cls._SUPPORTED_IMAGE_TYPES
         except Exception:
             return False
+
+    @classmethod
+    def _fetch_image_as_data_uri(cls, url: str) -> str | None:
+        """Download *url* and return a base64 data URI Qwen can always ingest."""
+        try:
+            with httpx.Client(timeout=20, follow_redirects=True) as client:
+                r = client.get(url)
+            if r.status_code >= 400:
+                return None
+            ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+            if ct not in cls._SUPPORTED_IMAGE_TYPES:
+                return None
+            b64 = base64.b64encode(r.content).decode()
+            return f"data:{ct};base64,{b64}"
+        except Exception:
+            return None
 
     def run(self, script: dict, assets: dict) -> list[dict]:
         """Generate one storyboard entry per scene.
@@ -70,7 +87,12 @@ class StoryboardAgent:
         content: list = []
         for img in images[:3]:
             url = img.get("url", "")
-            if url and self._url_is_usable_image(url):
+            if not url:
+                continue
+            data_uri = self._fetch_image_as_data_uri(url)
+            if data_uri:
+                content.append({"type": "image_url", "image_url": {"url": data_uri}})
+            elif self._url_is_usable_image(url):
                 content.append({"type": "image_url", "image_url": {"url": url}})
 
         scenes_text = "\n".join(
