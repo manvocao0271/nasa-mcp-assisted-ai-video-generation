@@ -10,7 +10,6 @@ Flow:
         → script_agent → output/script.md
         → storyboard_agent → output/storyboard.json
         → video_gen    → output/clips/scene_N.mp4
-        → edit_agent   → output/episode_final.mp4
         → episode_manifest.json
 """
 
@@ -21,7 +20,6 @@ from pathlib import Path
 from typing import Generator
 
 from agent.data_agent import DataAgent
-from agent.edit_agent import EditAgent
 from agent.script_agent import ScriptAgent
 from agent.storyboard_agent import StoryboardAgent
 from agent.video_gen import VideoGen
@@ -88,13 +86,8 @@ class Orchestrator:
         # ── Video ─────────────────────────────────────────────────────────────
         yield {"stage": "video", "status": "running", "detail": "Generating video clip (Wan 2.7)…"}
         clips = VideoGen(self.qwen_api_key).run(storyboard)
-        yield {"stage": "video", "status": "done", "detail": f"{len(clips)} clips generated"}
-
-        # ── Edit ──────────────────────────────────────────────────────────────
-        yield {"stage": "edit", "status": "running", "detail": "Assembling final film…"}
-        final_path = EditAgent().run(clips, script)
-        detail = str(final_path) if final_path else "Skipped — ffmpeg not found"
-        yield {"stage": "edit", "status": "done", "detail": detail}
+        clip_path = clips[0] if clips else None
+        yield {"stage": "video", "status": "done", "detail": str(clip_path) if clip_path else "No clip generated"}
 
         manifest = {
             "user_message": user_message,
@@ -102,8 +95,7 @@ class Orchestrator:
             "assets": assets,
             "script_scenes": len(script["scenes"]),
             "clips": [str(c) for c in clips],
-            "final_video": str(final_path) if final_path else None,
         }
         (OUTPUT_DIR / "episode_manifest.json").write_text(json.dumps(manifest, indent=2))
 
-        yield {"stage": "done", "status": "done", "detail": str(final_path) if final_path else "", "manifest": manifest}
+        yield {"stage": "done", "status": "done", "detail": str(clip_path) if clip_path else "", "manifest": manifest}

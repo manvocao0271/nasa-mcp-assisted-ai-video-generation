@@ -34,22 +34,21 @@ Every frame is anchored to something real. No hallucinated planets, no invented 
 ┌────────────────────────▼────────────────────────────────────────────┐
 │                        Orchestrator Agent                           │
 │  (Qwen via Qwen Cloud API + nasa-mcp MCP tools, token-budget loop)  │
-└──────┬──────────────────┬──────────────────┬───────────────────┬────┘
-       │                  │                  │                   │
-       ▼                  ▼                  ▼                   ▼
-┌─────────────┐  ┌────────────────┐  ┌─────────────────┐  ┌──────────┐
-│  Data Agent │  │ Script Agent   │  │ Storyboard Agent│  │ Edit Agent│
-│             │  │                │  │                 │  │          │
-│ nasa-mcp    │  │ 3-act narration│  │ Visual prompt   │  │ ffmpeg   │
-│ MCP tool    │  │ grounded in    │  │ per scene +     │  │ assembly,│
-│ calls →     │  │ real NASA data │  │ NASA reference  │  │ captions,│
-│ raw assets  │  │                │  │ frame attached  │  │ fades    │
-└─────────────┘  └────────────────┘  └────────┬────────┘  └──────────┘
-                                              │
+└──────┬──────────────────┬──────────────────┬────┘
+       │                  │                  │
+       ▼                  ▼                  ▼
+┌─────────────┐  ┌────────────────┐  ┌─────────────────┐
+│  Data Agent │  │ Script Agent   │  │ Storyboard Agent│
+│             │  │                │  │                 │
+│ nasa-mcp    │  │ 3-act narration│  │ Visual prompt + │
+│ MCP tool    │  │ grounded in    │  │ NASA reference  │
+│ calls →     │  │ real NASA data │  │ frame attached  │
+│ raw assets  │  └────────────────┘  └────────┬────────┘
+└─────────────┘                               │
                                 ┌─────────────▼──────────────┐
-                                │  Wan / HappyHorse           │
+                                │  Wan 2.7 (i2v / t2v)        │
                                 │  (Qwen Cloud video gen)     │
-                                │  one clip per scene         │
+                                │  one 10-second clip         │
                                 └─────────────────────────────┘
 
 All LLM calls  → Qwen Cloud (Alibaba Cloud infrastructure)
@@ -100,7 +99,6 @@ The `nasa_mcp/` directory contains a [Model Context Protocol](https://modelconte
 
 - Python 3.11+
 - [`uv`](https://docs.astral.sh/uv/)
-- `ffmpeg` on your PATH (`brew install ffmpeg` / `apt install ffmpeg`)
 - [NASA API key](https://api.nasa.gov) (free, instant)
 - Qwen Cloud API key (sign up at [qwencloud.com](https://www.qwencloud.com))
 
@@ -150,8 +148,7 @@ agent/                  # Multi-agent pipeline
   data_agent.py         # Calls nasa-mcp tools, produces assets.json
   script_agent.py       # Writes 3-act narration from assets.json
   storyboard_agent.py   # Generates visual prompts + attaches reference frames
-  video_gen.py          # Wan/HappyHorse API client (Qwen Cloud)
-  edit_agent.py         # ffmpeg assembly: concat + captions + fades
+  video_gen.py          # Wan 2.7 API client (Qwen Cloud) → output/clips/
 nasa_mcp/               # NASA MCP server (data backbone)
   features/
     apod/               # Astronomy Picture of the Day
@@ -268,7 +265,7 @@ Track 2 has the highest token allowance of all tracks, but still enforces a ceil
 - [ ] **M3 — Script Agent** — 3-act narration generated from `assets.json`; output validated against scene schema
 - [ ] **M4 — Storyboard Agent** — Visual prompts generated; NASA reference frames attached
 - [ ] **M5 — Video Gen integration** — Wan/HappyHorse API on Qwen Cloud wired; single-scene clip generated
-- [ ] **M6 — Edit Agent** — `ffmpeg`-based assembly: clip concat + captions + fade transitions
+- [ ] **M6 — ffmpeg assembly** ~~(removed — single clip per prompt, no concat needed)~~
 - [ ] **M7 — Orchestrator loop** — Full pipeline runs end-to-end with token-budget guard
 - [ ] **M8 — Streamlit UI** — `app.py` chat interface with per-step status streaming, inline video player, and NASA source panel
 - [ ] **M9 — Alibaba Cloud deployment** — MCP server + Streamlit app deployed to Alibaba Cloud ECS; proof-of-deployment recording created

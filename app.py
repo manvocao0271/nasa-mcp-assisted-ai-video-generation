@@ -91,7 +91,6 @@ if user_input:
             nasa_api_key=NASA_API_KEY,
         )
 
-        final_video_path: Path | None = None
         manifest: dict = {}
 
         ICONS = {
@@ -145,22 +144,18 @@ if user_input:
                 st.error(f"**Pipeline error:** {exc}")
                 st.stop()
 
-        # Show finished video inline — assembled film or all accumulated clips
+        # Show all accumulated clips
         clips_dir = Path("output/clips")
-        # Sort by modification time so newest clips appear last
         scene_clips = (
             sorted(clips_dir.glob("scene_*.mp4"), key=lambda p: p.stat().st_mtime)
             if clips_dir.exists() else []
         )
 
-        if final_video_path and final_video_path.exists():
-            video_placeholder.video(str(final_video_path))
-            response_text = f"Here's your film: **{manifest.get('title', 'Episode')}**"
-        elif scene_clips:
+        if scene_clips:
             response_text = f"{len(scene_clips)} clip(s) in `output/clips/`:"
             with video_placeholder.container():
                 for clip in scene_clips:
-                    st.caption(f"Scene {clip.stem.split('_')[-1]}")
+                    st.caption(clip.name)
                     st.video(str(clip))
         else:
             response_text = (

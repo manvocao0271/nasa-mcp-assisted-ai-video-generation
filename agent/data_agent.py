@@ -51,12 +51,8 @@ if sys.platform == "win32":
 OUTPUT_DIR = Path("output")
 MAX_TOOL_ITERATIONS = 10
 
-SYSTEM_PROMPT = """\
-You are a NASA data researcher. Use the available NASA tools to gather images, \
-scientific data, and context relevant to the user's request. \
-Call multiple tools to collect rich, varied assets — aim for at least 2-3 tool calls. \
-When you have enough data to write a compelling short film, stop calling tools and \
-summarise what you found in one sentence.\
+SYSTEM_PROMPT = """
+You are a NASA data researcher. Use the available NASA tools to gather images, scientific data, and context relevant to the user's request. Call multiple tools to collect rich, varied assets — aim for at least 2-3 tool calls. When you have enough data to write a compelling short film, stop calling tools and summarise what you found in one sentence.
 """
 
 
