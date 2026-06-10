@@ -1,6 +1,6 @@
 """MCP tool registration for CME."""
 
-from datetime import date, timedelta
+from datetime import date
 import hashlib
 
 from mcp.server.fastmcp import FastMCP
