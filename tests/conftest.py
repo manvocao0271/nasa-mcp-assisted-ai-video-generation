@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from nasa_mcp.cache import Cache
 from nasa_mcp.config import Config
 from nasa_mcp.features.apod.tools import register_apod_tools
+from nasa_mcp.features.donki import register_donki_tools
 from nasa_mcp.features.earth.tools import register_earth_tools
 from nasa_mcp.features.exoplanets.tools import register_exoplanet_tools
 from nasa_mcp.features.image_library.tools import register_image_library_tools
@@ -41,6 +42,7 @@ def mcp_with_tools(test_config: Config, cache: Cache) -> FastMCP:
     """A FastMCP instance with all feature tools registered."""
     mcp = FastMCP("nasa-mcp-test")
     register_apod_tools(mcp, test_config, cache)
+    register_donki_tools(mcp, test_config, cache)
     register_earth_tools(mcp, test_config, cache)
     register_exoplanet_tools(mcp, test_config, cache)
     register_image_library_tools(mcp, test_config, cache)
