@@ -12,7 +12,7 @@ from nasa_mcp.config import Config
 from nasa_mcp.errors import NasaApiError, NotFoundError, RateLimitError
 
 
-async def get_cme(config: Config, start_date: date | None = None, end_date: date | None = None) -> list[dict]:
+async def get_cme_events(config: Config, start_date: date | None = None, end_date: date | None = None) -> list[dict]:
     """Fetch Coronal Mass Ejection events for a date range, or the last month if omitted."""
 
     params: dict[str, str] = {
@@ -51,3 +51,5 @@ async def get_cme(config: Config, start_date: date | None = None, end_date: date
             raise NotFoundError(response.text)
         case _:
             raise NasaApiError(f"DONKI-CME returned {response.status_code}: {response.text}")
+        
+

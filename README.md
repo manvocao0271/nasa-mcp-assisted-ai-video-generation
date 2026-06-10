@@ -191,34 +191,6 @@ This project is competing in **Track 2: AI Showrunner**, which requires an agent
 
 **"Pale Blue Dot"** — a series of short (~60-second) space documentaries narrated as dramatic monologues. Each episode is seeded by a real NASA data event (an asteroid close approach, an APOD, a Mars sol's worth of rover photos, a Mars weather report, a solar storm, or a natural event on Earth) and rendered as a cinematic short using Wan/HappyHorse. The Qwen model orchestrates the entire pipeline; NASA MCP tools provide the factual grounding.
 
-### Pipeline architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Orchestrator Agent                           │
-│  (Qwen via Qwen Cloud API + nasa-mcp MCP tools, token-budget loop)  │
-└──────┬──────────────────┬──────────────────┬───────────────────┬────┘
-       │                  │                  │                   │
-       ▼                  ▼                  ▼                   ▼
-┌─────────────┐  ┌────────────────┐  ┌─────────────────┐  ┌───────────┐
-│  Data Agent │  │ Script Agent   │  │ Storyboard Agent│  │ Edit Agent│
-│             │  │                │  │                 │  │           │
-│ nasa-mcp    │  │ Scene / act    │  │ Visual prompt   │  │ Assembly  │
-│ MCP tool    │  │ breakdown,     │  │ per scene,      │  │ ordering, │
-│ calls →     │  │ narration,     │  │ NASA image as   │  │ music,    │
-│ raw assets  │  │ dialogue       │  │ reference frame │  │ captions  │
-└─────────────┘  └────────────────┘  └────────┬────────┘  └───────────┘
-                                              │
-                                ┌─────────────▼───────────────┐
-                                │  Video Gen (Wan / HappyHorse│
-                                │  via Qwen Cloud)            │
-                                │  one clip per scene         │
-                                └─────────────────────────────┘
-
-All LLM calls → Qwen Cloud (Alibaba Cloud infrastructure)
-MCP server    → Alibaba Cloud hosted instance
-```
-
 ### Qwen Cloud integration points
 
 | Component | Qwen Cloud API / service used |
