@@ -20,14 +20,9 @@ def register_donki_flr_tools(mcp: FastMCP, config: Config, cache: Cache) -> None
     async def get_flr_events_tool(args: GetFLREventsInput) -> list[dict]:
         """Fetch NASA DONKI solar flare events for a date range.
 
-        Returns flare records with activity ID, begin/peak/end times, class
-        type (for example M or X class), source location, active region,
-        linked events, instruments, and DONKI links. If dates are omitted,
-        searches the last 30 days.
+        Returns flare records with activity ID, begin/peak/end times, class type (for example M or X class), source location, active region, linked events, instruments, and DONKI links. If dates are omitted, searches the last 30 days.
 
-        Use for solar flare, radiation burst, active-region, heliophysics,
-        aurora, or space-weather scene requests. Pair linked FLR events with
-        CME tools when a flare appears to trigger a coronal mass ejection.
+        Use for solar flare, radiation burst, active-region, heliophysics, aurora, or space-weather scene requests. Pair linked FLR events with CME tools when a flare appears to trigger a coronal mass ejection.
         """
 
         key_input = f"{args.start_date}|{args.end_date}"

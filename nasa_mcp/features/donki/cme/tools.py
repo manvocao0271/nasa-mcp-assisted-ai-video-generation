@@ -20,7 +20,10 @@ def register_donki_cme_tools(mcp: FastMCP, config: Config, cache: Cache) -> None
     async def get_cme_events_tool(args: GetCMEEventsInput) -> list[dict]:
         """Fetch NASA DONKI Coronal Mass Ejection events for a date range.
 
-        Returns CME records with activity ID, start time, source location, active region, instruments, CME analyses, ENLIL model runs, linked events, and DONKI links. If dates are omitted, searches the last 30 days.
+        Returns CME records with activity ID, start time, source location,
+        active region, instruments, `cmeAnalyses`, ENLIL model runs, linked
+        events, and DONKI links. If dates are omitted, searches the last 30
+        days.
 
         Use for solar storm, coronal mass ejection, heliophysics, aurora, or space-weather scene requests.
         """
