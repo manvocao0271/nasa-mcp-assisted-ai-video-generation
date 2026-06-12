@@ -1,7 +1,6 @@
 """Thin wrapper around the Qwen Cloud chat API (OpenAI-compatible).
 
-Qwen Cloud exposes a DashScope endpoint that is fully compatible with the
-OpenAI Python SDK. All agents use this client for LLM calls.
+Qwen Cloud exposes a DashScope endpoint that is fully compatible with the OpenAI Python SDK. All agents use this client for LLM calls.
 
 Docs: https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions
 

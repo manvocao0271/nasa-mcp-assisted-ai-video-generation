@@ -1,8 +1,6 @@
 """Storyboard Agent — converts each script scene into a video generation prompt.
 
-Reads the script dict and assets, calls Qwen to produce a compact visual
-prompt (≤80 tokens) per scene, and pairs each prompt with a NASA reference
-image URL to use as the Wan image2video style anchor.
+Reads the script dict and assets, calls Qwen to produce a compact visual prompt (≤80 tokens) per scene, and pairs each prompt with a NASA reference image URL to use as the Wan image2video style anchor.
 
 Output schema (output/storyboard.json):
     [
@@ -73,8 +71,7 @@ class StoryboardAgent:
     def run(self, script: dict, assets: dict) -> list[dict]:
         """Generate one storyboard entry per scene.
 
-        Calls Qwen with the script narrations + real NASA images so prompts are
-        visually grounded. Returns storyboard list and writes output/storyboard.json.
+        Calls Qwen with the script narrations + real NASA images so prompts are visually grounded. Returns storyboard list and writes output/storyboard.json.
 
         Args:
             script: output from ScriptAgent.run()

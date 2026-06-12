@@ -1,8 +1,6 @@
 """Pale Blue Dot — AI Universe Video Generator
 
-Streamlit chatbot UI. The user types a natural language astronomy request;
-the pipeline streams status updates back to the browser as each agent runs,
-then plays the finished video inline.
+Streamlit chatbot UI. The user types a natural language astronomy request; the pipeline streams status updates back to the browser as each agent runs, then plays the finished video inline.
 
 Launch:
     uv run streamlit run app.py
@@ -81,10 +79,9 @@ LABELS = {
 def _fetch_thumb(url: str) -> bytes | str:
     """Return image bytes for domains that block browser access, else the original URL.
 
-    NASA Image Library assets (images-assets.nasa.gov) return 403/timeout when
-    loaded directly by the browser.  We fetch them server-side and hand Streamlit
-    raw bytes instead, which always works.
+    NASA Image Library assets (images-assets.nasa.gov) return 403/timeout when loaded directly by the browser. We fetch them server-side and hand Streamlit raw bytes instead, which always works.
     """
+
     _PROXY_DOMAINS = ("images-assets.nasa.gov",)
     if not any(d in url for d in _PROXY_DOMAINS):
         return url  # fast path — most URLs are fine
@@ -103,6 +100,7 @@ def _render_pipeline_stages(generator, status_area) -> dict:
 
     Returns the manifest dict from the "done" event (or {} if not reached).
     """
+    
     step_placeholders: dict = {}
     manifest: dict = {}
     with status_area:

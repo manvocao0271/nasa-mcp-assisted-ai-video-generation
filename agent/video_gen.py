@@ -1,8 +1,6 @@
 """Video Gen — calls Wan 2.7 on Qwen Cloud to generate scene clips.
 
-For each storyboard entry, submits an async text-to-video job to the
-DashScope international API, polls until completion, downloads the MP4,
-and saves it to output/clips/scene_N.mp4.
+For each storyboard entry, submits an async text-to-video job to the DashScope international API, polls until completion, downloads the MP4, and saves it to output/clips/scene_N.mp4.
 
 API reference: https://docs.qwencloud.com/developer-guides/video-generation/text-to-video
 """
@@ -80,10 +78,7 @@ class VideoGen:
     def _submit_job(self, prompt: str, duration_seconds: int, ref_image_url: str = "") -> str:
         """POST an async video generation job. Returns the task_id.
 
-        Uses wan2.7-i2v (image-to-video) when a valid NASA ref image URL is
-        provided AND it is visually relevant to the prompt — the image becomes
-        the first frame, giving Wan accurate visual grounding.
-        Falls back to wan2.7-t2v (text-to-video) otherwise.
+        Uses wan2.7-i2v (image-to-video) when a valid NASA ref image URL is provided AND it is visually relevant to the prompt — the image becomes the first frame, giving Wan accurate visual grounding. Falls back to wan2.7-t2v (text-to-video) otherwise.
         """
         use_ref = (
             ref_image_url
@@ -126,9 +121,7 @@ class VideoGen:
     def _ref_matches_prompt(ref_url: str, prompt: str) -> bool:
         """Heuristic: reject an APOD ref image that clearly doesn't match the prompt topic.
 
-        APOD URLs contain the image filename which often hints at the subject.
-        If the prompt is about Mars/Earth/Moon/asteroid but the URL suggests
-        a galaxy, nebula, or unrelated object, skip the ref so t2v is used.
+        APOD URLs contain the image filename which often hints at the subject. If the prompt is about Mars/Earth/Moon/asteroid but the URL suggests a galaxy, nebula, or unrelated object, skip the ref so t2v is used.
         """
         prompt_lower = prompt.lower()
         url_lower = ref_url.lower()
@@ -154,9 +147,7 @@ class VideoGen:
     def _url_is_usable_image(url: str) -> bool:
         """Check that the URL serves a supported image format AND is reachable by Wan's servers.
 
-        Some NASA hosts (images-assets.nasa.gov) are inaccessible from Wan's
-        remote download infrastructure even though they respond to local HEAD
-        requests.  These domains are blocklisted so we fall back to t2v.
+        Some NASA hosts (images-assets.nasa.gov) are inaccessible from Wan's remote download infrastructure even though they respond to local HEAD requests.  These domains are blocklisted so we fall back to t2v.
         """
         _SUPPORTED = ("image/jpeg", "image/png", "image/gif", "image/webp")
         # Domains confirmed unreachable by Wan's video generation servers
