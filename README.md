@@ -56,6 +56,24 @@ MCP server     → Alibaba Cloud hosted instance
 Streamlit UI   → runs locally (dev) or Alibaba Cloud ECS (production)
 ```
 
+## Pipeline Flowchart
+flowchart TD
+    A[User types request in Streamlit chat] --> B[Phase 1: Data fetch]
+    B --> C[Phase 2: Image picker]
+    C --> D[Phase 3: Script → Storyboard → Video]
+    D --> E[Clip plays inline in browser]
+
+    B --> B1[DataAgent + NASA MCP tools]
+    B1 --> B2[output/assets.json]
+
+    C --> C1[User selects NASA reference images]
+
+    D --> D1[ScriptAgent → script.json]
+    D1 --> D2[StoryboardAgent → storyboard.json]
+    D2 --> D3[VideoGen → output/clips/scene_N.mp4]
+    D3 --> D4[episode_manifest.json]
+
+
 ## NASA MCP server — data backbone
 
 The `nasa_mcp/` directory contains a [Model Context Protocol](https://modelcontextprotocol.io) server that exposes NASA's public APIs as typed tool calls. The Orchestrator agent uses these tools to pull real astronomical data into the pipeline.
