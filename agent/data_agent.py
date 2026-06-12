@@ -1,8 +1,6 @@
 """Data Agent — translates the user request into NASA data assets via MCP tools.
 
-Spins up the nasa-mcp MCP server as a stdio subprocess, hands the user message
-to Qwen (qwen-max) in tool-calling mode, executes the resulting MCP tool calls,
-and returns a structured assets dict saved to output/assets.json.
+Spins up the nasa-mcp MCP server as a stdio subprocess, hands the user message to Qwen (qwen-max) in tool-calling mode, executes the resulting MCP tool calls, and returns a structured assets dict saved to output/assets.json.
 
 Output schema (output/assets.json):
     {
@@ -100,6 +98,7 @@ class DataAgent:
 
     async def _fetch_assets(self, user_message: str) -> dict:
         """Async: spin up the MCP server and run the tool-calling loop."""
+
         server_params = StdioServerParameters(
             command="uv",
             args=["run", "nasa-mcp"],

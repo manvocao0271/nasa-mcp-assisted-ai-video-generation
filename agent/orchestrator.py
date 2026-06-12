@@ -1,8 +1,6 @@
 """Orchestrator — drives the full pipeline and enforces the token budget.
 
-Receives the user's natural language request from app.py, runs each agent
-in sequence, streams status updates back via a generator, and writes
-output/episode_manifest.json when the run completes.
+Receives the user's natural language request from app.py, runs each agent in sequence, streams status updates back via a generator, and writes output/episode_manifest.json when the run completes.
 
 Flow:
     user message
@@ -42,10 +40,9 @@ class Orchestrator:
     def fetch_data(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
         """Run only the data stage. Yields status dicts.
 
-        The final yield has stage="data", status="done", and an "assets" key
-        containing the full assets dict so the caller can present images to
-        the user before proceeding.
+        The final yield has stage="data", status="done", and an "assets" key containing the full assets dict so the caller can present images to the user before proceeding.
         """
+
         assets_path = OUTPUT_DIR / "assets.json"
         if resume and assets_path.exists():
             assets = json.loads(assets_path.read_text())
@@ -63,11 +60,11 @@ class Orchestrator:
     def run_pipeline(self, user_message: str, assets: dict, resume: bool = False) -> Generator[dict, None, None]:
         """Run script → storyboard → video from pre-fetched assets.
 
-        ``assets["images"]`` should already be filtered to the user's selected
-        images before calling this method.
+        ``assets["images"]`` should already be filtered to the user's selected images before calling this method.
 
         Yields status dicts.  The final yield has stage="done".
         """
+
         # ── Script ────────────────────────────────────────────────────────────
         script_path = OUTPUT_DIR / "script.json"
         if resume and script_path.exists():

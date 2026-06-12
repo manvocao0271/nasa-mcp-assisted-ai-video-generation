@@ -1,7 +1,6 @@
 """Script Agent — writes a 3-act narration script grounded in NASA assets.
 
-Reads output/assets.json, calls Qwen to produce a structured screenplay,
-and writes output/script.md.
+Reads output/assets.json, calls Qwen to produce a structured screenplay, and writes output/script.md.
 
 Output schema (script dict):
     {
@@ -30,11 +29,8 @@ from agent.qwen_client import MODEL_PLUS, QwenClient
 
 OUTPUT_DIR = Path("output")
 
-SYSTEM_PROMPT = """\
-You are a science documentary scriptwriter. You will be shown real NASA satellite images \
-alongside structured data about them. Write a 3-act short-film script (~300 words total) \
-grounded strictly in what you see and the data provided. Be cinematic and factual.
-Return ONLY valid JSON matching this schema exactly — no markdown fences, no extra text:
+SYSTEM_PROMPT = """
+You are a science documentary scriptwriter. You will be shown real NASA satellite images alongside structured data about them. Write a 3-act short-film script (~300 words total) grounded strictly in what you see and the data provided. Be cinematic and factual. Return ONLY valid JSON matching this schema exactly — no markdown fences, no extra text:
 {
   "title": "<episode title>",
   "scenes": [
@@ -69,11 +65,9 @@ class ScriptAgent:
     def _fetch_image_as_data_uri(cls, url: str) -> str | None:
         """Download *url* and return a base64 data URI Qwen can always ingest.
 
-        Qwen's multimodal API cannot reach many NASA asset servers (redirects,
-        missing Content-Length, access restrictions).  Encoding the image bytes
-        locally as a data URI guarantees delivery regardless of the origin host.
-        Returns None if the download fails or the content is not an image.
+        Qwen's multimodal API cannot reach many NASA asset servers (redirects, missing Content-Length, access restrictions).  Encoding the image bytes locally as a data URI guarantees delivery regardless of the origin host. Returns None if the download fails or the content is not an image.
         """
+
         try:
             with httpx.Client(timeout=20, follow_redirects=True) as client:
                 r = client.get(url)
@@ -90,13 +84,13 @@ class ScriptAgent:
     def run(self, assets: dict, user_message: str) -> dict:
         """Generate script from assets. Returns script dict and writes output/script.md.
 
-        Passes real NASA image URLs to Qwen as multimodal content so the model
-        can visually ground the narration in what the images actually show.
+        Passes real NASA image URLs to Qwen as multimodal content so the model can visually ground the narration in what the images actually show.
 
         Args:
             assets: output from DataAgent.run()
             user_message: original user request for tone/context
         """
+
         client = QwenClient(self.qwen_api_key, model=MODEL_PLUS)
 
         # Build multimodal user message: images first, then structured data text
