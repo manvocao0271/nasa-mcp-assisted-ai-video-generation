@@ -3,7 +3,7 @@
 
 > A multi-agent system that turns real NASA data into cinematic short films about the universe. Powered by Qwen models on Qwen Cloud, grounded by NASA's public APIs via MCP.
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Hackathon](https://img.shields.io/badge/Qwen%20Cloud%20Hackathon-Track%202%3A%20AI%20Showrunner-blueviolet)](https://qwencloud-hackathon.devpost.com/)
 
@@ -13,11 +13,11 @@
 
 **Pale Blue Dot** is an autonomous AI agent pipeline with a Streamlit chat interface. Type a natural language request — *"reconstruct a windy day on Mars using terrain and weather data"* — and the system builds a short cinematic film grounded entirely in real NASA data.
 
-The Streamlit UI feeds your message to an Orchestrator agent (Qwen on Qwen Cloud) which decides which NASA tools to call, writes a narration script from the results, generates a scene-by-scene storyboard, produces video clips via Wan / HappyHorse, and assembles them into a final film — all streamed back to your browser as it happens.
+The Streamlit UI feeds your message to an Orchestrator agent (Qwen on Qwen Cloud) which decides which NASA tools to call, lets you pick reference images, writes a narration script from the results, generates a scene-by-scene storyboard, and produces a video clip via Wan / HappyHorse — all streamed back to your browser as it happens.
 
 1. **Chat** — type any astronomy question or video request in natural language
 2. **Watch the pipeline run** — each agent step streams status updates to the UI in real time
-3. **Get a video** — the finished film plays inline in the browser
+3. **Get a video** — the generated clip plays inline in the browser
 4. **Inspect the sources** — NASA data used (images, orbital data, weather, exoplanet parameters) shown alongside
 
 Every frame is anchored to something real. No hallucinated planets, no invented missions — just terrain, weather, orbital context, and event data assembled into a scene.
@@ -48,7 +48,7 @@ Every frame is anchored to something real. No hallucinated planets, no invented 
                                 ┌─────────────▼───────────────┐
                                 │  Wan 2.7 (i2v / t2v)        │
                                 │  (Qwen Cloud video gen)     │
-                                │  one 10-second clip         │
+                                │  one 10-second clip/scene   │
                                 └─────────────────────────────┘
 
 All LLM calls  → Qwen Cloud (Alibaba Cloud infrastructure)
@@ -64,16 +64,19 @@ The `nasa_mcp/` directory contains a [Model Context Protocol](https://modelconte
 
 | Tool | What it provides |
 |------|-----------------|
-| `get_apod` | Astronomy Picture of the Day for any date back to 1995 |
-| `search_apod` | Full-text search across the APOD archive |
-| `get_neo_feed` | Near-Earth asteroids and close approach data for a date range |
-| `get_neo_lookup` | Detailed orbital data for a specific asteroid |
-| `search_image_library` | Search 140,000+ images and videos in the NASA Image Library |
-| `get_image_metadata` | Metadata for a specific NASA image asset |
-| `search_exoplanets` | Query NASA's Exoplanet Archive (5,000+ confirmed planets) |
-| `compare_to_earth` | Compare an exoplanet's parameters to Earth's |
-| `get_epic_images` | Full-disc Earth photos from DSCOVR's EPIC camera |
-| `get_epic_available_dates` | List all dates with EPIC Earth imagery available |
+| `get_apod_tool` | Astronomy Picture of the Day for any date back to 1995 |
+| `search_apod_tool` | Full-text search across the APOD archive |
+| `get_neo_feed_tool` | Near-Earth asteroids and close approach data for a date range |
+| `get_neo_lookup_tool` | Detailed orbital data for a specific asteroid |
+| `search_image_library_tool` | Search 140,000+ images and videos in the NASA Image Library |
+| `get_image_asset_tool` | All size variants and metadata for a specific NASA image asset |
+| `search_exoplanets_tool` | Query NASA's Exoplanet Archive (5,000+ confirmed planets) |
+| `get_exoplanet_stats_tool` | Summary statistics for the confirmed exoplanet catalog |
+| `get_epic_images_tool` | Full-disc Earth photos from DSCOVR's EPIC camera |
+| `get_epic_available_dates_tool` | List all dates with EPIC Earth imagery available |
+| `get_cme_events_tool` | Coronal mass ejection events from DONKI |
+| `get_flr_events_tool` | Solar flare events from DONKI |
+| `get_gst_events_tool` | Geomagnetic storm events from DONKI |
 
 ### Scene reconstruction sources (planned)
 
@@ -82,7 +85,6 @@ These are the next NASA data sources to wire into the pipeline so a scene can be
 | Source | What it adds to a reconstructed scene |
 |------|---------------------------------------|
 | Mars Trek WMTS | Mars terrain, landing-site mosaics, elevation, and camera framing context for believable surface shots |
-| DONKI | Solar flares, CMEs, geomagnetic storms, and other space-weather events that shape the visual mood of a scene |
 | EONET | Curated Earth natural events such as storms, fires, dust outbreaks, and cyclones with linked imagery and metadata |
 | InSight Mars Weather | Wind, pressure, and temperature measurements from the Martian surface for accurate local conditions |
 
@@ -106,7 +108,7 @@ These are the next NASA data sources to wire into the pipeline so a scene can be
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - [`uv`](https://docs.astral.sh/uv/)
 - [NASA API key](https://api.nasa.gov) (free, instant)
 - Qwen Cloud API key (sign up at [qwencloud.com](https://www.qwencloud.com))
@@ -141,7 +143,7 @@ Open `http://localhost:8501`. Type any request into the chat box, e.g.:
 - *"Generate a video about an exoplanet similar to Earth"*
 - *"Turn a DONKI solar storm or an EONET wildfire into a dramatic science scene"*
 
-Each agent step streams a status update to the UI as it runs. The finished video plays inline when complete. The NASA images and data used are shown in a source panel below the video.
+After NASA data is fetched you pick which images to use as visual references. Each subsequent agent step streams a status update to the UI. The generated clip plays inline when complete. NASA images used are shown in the sidebar source panel.
 
 ### Run tests
 
@@ -153,31 +155,32 @@ uv run pytest -m live                  # live NASA API round-trips (needs NASA_A
 ## Project structure
 
 ```
-app.py                  # Streamlit UI entry point
+app.py                  # Streamlit UI: chat, image picker, pipeline status, inline video
 agent/                  # Multi-agent pipeline
   orchestrator.py       # Token-budget-aware pipeline driver
-  data_agent.py         # Calls nasa-mcp tools, produces assets.json
-  script_agent.py       # Writes 3-act narration from assets.json
-  storyboard_agent.py   # Generates visual prompts + attaches reference frames
+  data_agent.py         # Calls nasa-mcp tools → output/assets.json
+  script_agent.py       # Writes 3-act narration → output/script.json
+  storyboard_agent.py   # Visual prompts + NASA ref frames → output/storyboard.json
   video_gen.py          # Wan 2.7 API client (Qwen Cloud) → output/clips/
+  qwen_client.py        # OpenAI-compatible Qwen Cloud chat client
 nasa_mcp/               # NASA MCP server (data backbone)
   features/
     apod/               # Astronomy Picture of the Day
+    donki/              # DONKI space-weather events (CME, flare, geomagnetic storm)
     earth/              # EPIC satellite imagery
     neo/                # Near-Earth Objects
     exoplanets/         # Exoplanet Archive
     image_library/      # NASA Image & Video Library
+    mars_trek/          # Mars Trek WMTS (scaffold — not registered yet)
   cache.py              # SQLite TTL cache
   config.py             # Config / env loading
   server.py             # MCP server entry point
 output/                 # Generated artifacts (gitignored)
   assets.json           # NASA data fetched for the request
-  script.md             # 3-act narration
+  script.json           # 3-act narration (structured JSON)
   storyboard.json       # Per-scene visual prompts
-  clips/                # Individual scene mp4s
-  episode_final.mp4     # Assembled film
-  episode_manifest.json # Run summary: data sources, token spend, durations
-evals/                  # Benchmarks and eval harness
+  clips/                # Generated scene mp4(s)
+  episode_manifest.json # Run summary: data sources, token spend, clip paths
 tests/                  # Integration tests
 ```
 
@@ -205,26 +208,25 @@ This project is competing in **Track 2: AI Showrunner**, which requires an agent
 
 | Agent | Responsibility | Key outputs |
 |---|---|---|
-| **Orchestrator** | Drives the pipeline, enforces token budget, stitches results | `episode_manifest.json` |
+| **Orchestrator** | Drives the pipeline, enforces token budget, writes run manifest | `episode_manifest.json` |
 | **Data Agent** | Calls NASA MCP tools, selects the best raw assets for a theme | `assets.json` (URLs, metadata) |
-| **Script Agent** | Writes a 3-act ~300-word narration grounded in the NASA data | `script.md` (scenes, narration, mood) |
+| **Script Agent** | Writes a 3-act ~300-word narration grounded in the NASA data | `script.json` (scenes, narration, mood) |
 | **Storyboard Agent** | Converts each scene into a Wan/HappyHorse-compatible visual prompt, attaches NASA reference frames | `storyboard.json` (prompt, ref_image_url per scene) |
-| **Video Gen** | Calls Wan/HappyHorse via Qwen Cloud per scene, polls for completion | `clips/scene_N.mp4` |
-| **Edit Agent** | Assembles clips in order, adds captions from script, applies fade transitions | `episode_final.mp4` |
+| **Video Gen** | Calls Wan/HappyHorse via Qwen Cloud, polls for completion | `clips/scene_N.mp4` (currently one clip per run) |
 
 ### Data sources → scene reconstruction hooks
 
 | NASA source | Story hook |
 |---|---|
-| `get_apod` (date-targeted) | Opening image / title card — "On this day in [year], humanity's eye turned to…" |
-| `get_neo_feed` | Asteroid close approach as plot inciting event |
-| `search_exoplanets` + `compare_to_earth` | "If there is another pale blue dot…" — closing monologue |
-| `search_image_library` | B-roll reference frames fed directly to Wan as `image2video` inputs |
-| `get_epic_images` | Full-disc Earth shot for opening/closing wide |
-| Mars Trek WMTS | Mars terrain plate, horizon line, landing-site geography, and topographic camera moves |
-| InSight Mars Weather | Wind-driven motion, dustiness, pressure, and temperature for Martian atmosphere scenes |
-| DONKI | Solar storm beats, aurora-style space-weather visuals, and narration about heliophysics events |
-| EONET | Storm systems, wildfires, dust outbreaks, and other real Earth event backdrops |
+| `get_apod_tool` (date-targeted) | Opening image / title card — "On this day in [year], humanity's eye turned to…" |
+| `get_neo_feed_tool` | Asteroid close approach as plot inciting event |
+| `search_exoplanets_tool` + `get_exoplanet_stats_tool` | "If there is another pale blue dot…" — closing monologue |
+| `search_image_library_tool` | B-roll reference frames fed directly to Wan as image-to-video inputs |
+| `get_epic_images_tool` | Full-disc Earth shot for opening/closing wide |
+| `get_cme_events_tool` / `get_flr_events_tool` / `get_gst_events_tool` | Solar storm beats, aurora-style space-weather visuals, and heliophysics narration |
+| Mars Trek WMTS *(planned)* | Mars terrain plate, horizon line, landing-site geography, and topographic camera moves |
+| InSight Mars Weather *(planned)* | Wind-driven motion, dustiness, pressure, and temperature for Martian atmosphere scenes |
+| EONET *(planned)* | Storm systems, wildfires, dust outbreaks, and other real Earth event backdrops |
 
 ### Token budget strategy
 
@@ -246,14 +248,14 @@ Track 2 has the highest token allowance of all tracks, but still enforces a ceil
 
 ### Implementation milestones
 
-- [ ] **M1 — Qwen Cloud wiring** — Qwen Cloud API client working with tool-calling; verified against nasa-mcp tools
-- [ ] **M2 — Data Agent** — MCP tool calls work end-to-end; `assets.json` produced for a natural language request
-- [ ] **M3 — Script Agent** — 3-act narration generated from `assets.json`; output validated against scene schema
-- [ ] **M4 — Storyboard Agent** — Visual prompts generated; NASA reference frames attached
-- [ ] **M5 — Video Gen integration** — Wan/HappyHorse API on Qwen Cloud wired; single-scene clip generated
-- [ ] **M6 — ffmpeg assembly** ~~(removed — single clip per prompt, no concat needed)~~
-- [ ] **M7 — Orchestrator loop** — Full pipeline runs end-to-end with token-budget guard
-- [ ] **M8 — Streamlit UI** — `app.py` chat interface with per-step status streaming, inline video player, and NASA source panel
+- [x] **M1 — Qwen Cloud wiring** — `agent/qwen_client.py` with tool-calling against nasa-mcp tools
+- [x] **M2 — Data Agent** — MCP tool calls end-to-end; `assets.json` produced for a natural language request
+- [x] **M3 — Script Agent** — 3-act narration generated from `assets.json` → `script.json`
+- [x] **M4 — Storyboard Agent** — Visual prompts generated; NASA reference frames attached
+- [x] **M5 — Video Gen integration** — Wan/HappyHorse API on Qwen Cloud wired; single-scene clip generated
+- [x] **M6 — ffmpeg assembly** — removed; current pipeline produces one clip per run (multi-scene assembly TBD)
+- [x] **M7 — Orchestrator loop** — Full pipeline runs end-to-end with token-budget guard and resume-from-cache
+- [x] **M8 — Streamlit UI** — `app.py` chat interface, NASA image picker, per-step status streaming, inline video player, and NASA source panel
 - [ ] **M9 — Alibaba Cloud deployment** — MCP server + Streamlit app deployed to Alibaba Cloud ECS; proof-of-deployment recording created
 
 ### Submission checklist
@@ -273,7 +275,7 @@ Track 2 has the highest token allowance of all tracks, but still enforces a ceil
 |---|---|
 | Wan/HappyHorse rate limits | Queue scenes sequentially; cache completed clips to avoid re-generation |
 | Token budget overrun | Structured artifact handoffs + scene count cap (see above) |
-| Video gen latency | Async polling; Edit Agent starts assembly as soon as first clip is ready |
+| Video gen latency | Async polling with status updates in the Streamlit UI |
 | Clip visual consistency | Use the same NASA reference frame as style anchor across all scenes of one episode |
 | Alibaba Cloud cold-start latency | Keep MCP server warm with a lightweight health-check ping |
 
