@@ -1,6 +1,6 @@
 """Data Agent — translates the user request into NASA data assets via MCP tools.
 
-Spins up the nasa-mcp MCP server as a stdio subprocess, hands the user message to Qwen (qwen-max) in tool-calling mode, executes the resulting MCP tool calls, and returns a structured assets dict saved to output/assets.json.
+Spins up the nasa-mcp MCP server as a stdio subprocess, hands the user message to Qwen (qwen3.7-plus) in tool-calling mode, executes the resulting MCP tool calls, and returns a structured assets dict saved to output/assets.json.
 
 Output schema (output/assets.json):
     {
@@ -28,7 +28,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import TextContent
 from openai.types.chat import ChatCompletionMessageToolCall
 
-from agent.qwen_client import MODEL_MAX, QwenClient
+from agent.qwen_client import MODEL_PLUS, QwenClient
 
 # On Windows the ProactorEventLoop raises ConnectionResetError when the MCP
 # stdio pipe closes during shutdown.  Suppress it by patching the transport
@@ -127,7 +127,7 @@ class DataAgent:
                     for tool in mcp_tools_result.tools
                 ]
 
-                client = QwenClient(self.qwen_api_key, model=MODEL_MAX)
+                client = QwenClient(self.qwen_api_key, model=MODEL_PLUS)
                 messages: list[dict] = [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},

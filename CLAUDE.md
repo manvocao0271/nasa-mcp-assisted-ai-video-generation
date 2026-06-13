@@ -10,7 +10,7 @@ Multi-agent pipeline: user types a natural language astronomy request → Qwen (
 
 - **Language:** Python 3.12
 - **Package manager:** `uv` (`uv sync`, `uv run`)
-- **LLM:** Qwen via Qwen Cloud API (tool-calling mode) — `agent/qwen_client.py`
+- **LLM:** Qwen via Qwen Cloud API — `agent/qwen_client.py` (`qwen3.7-plus` data/tools, `qwen-vl-plus-2024-08-13` script/storyboard vision)
 - **Video gen:** Wan / HappyHorse on Qwen Cloud — `agent/video_gen.py`
 - **MCP:** `mcp[cli]` + `FastMCP`
 - **UI:** Streamlit (`app.py`)
@@ -67,7 +67,7 @@ tests/                      ← Integration tests (no network)
 - Tools are registered by calling `register_<feature>_tools(mcp, config, cache)` in `server.py`.
 - MCP tool names end with `_tool` (e.g. `get_apod_tool`).
 - Output artifacts go in `output/` (gitignored): `assets.json`, `script.json`, `storyboard.json`, `clips/scene_N.mp4`, `episode_manifest.json`.
-- Current pipeline generates **one** video clip per run (`VideoGen.MAX_CLIPS = 1`). Multi-scene assembly is not implemented yet.
+- **One scene per selected NASA image** (1–3 clips per run; 1 text-only scene when no images). Silent video only — no TTS or audio track.
 
 ## Pipeline flow (current)
 
@@ -75,9 +75,9 @@ tests/                      ← Integration tests (no network)
 user message (app.py)
   → Orchestrator.fetch_data()  → DataAgent  → assets.json  → user picks NASA images
   → Orchestrator.run_pipeline()
-      → ScriptAgent      → script.json
-      → StoryboardAgent  → storyboard.json
-      → VideoGen         → clips/scene_0.mp4
+      → ScriptAgent      → script.json (N caption scenes)
+      → StoryboardAgent  → storyboard.json (N visual prompts)
+      → VideoGen         → clips/scene_N.mp4 (one per scene)
       → episode_manifest.json
 ```
 
@@ -97,6 +97,8 @@ uv run mcp dev nasa_mcp/server.py  # MCP Inspector at localhost:6274
 |---|---|---|
 | `NASA_API_KEY` | Yes (prod) | Free at api.nasa.gov. Defaults to `DEMO_KEY` (rate-limited) |
 | `QWEN_API_KEY` | Yes | Qwen Cloud / DashScope API key |
+| `QWEN_MODEL_DATA` | No | Chat model for Data Agent tool-calling (default `qwen3.7-plus`) |
+| `QWEN_MODEL_VISION` | No | VL model for Script/Storyboard (default `qwen-vl-plus-2024-08-13`) |
 | `NASA_MCP_CACHE_PATH` | No | SQLite cache path (MCP server only) |
 | `NASA_MCP_TIMEOUT` | No | NASA HTTP timeout in seconds (default `30`) |
 

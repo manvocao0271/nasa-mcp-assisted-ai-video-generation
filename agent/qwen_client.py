@@ -4,22 +4,25 @@ Qwen Cloud exposes a DashScope endpoint that is fully compatible with the OpenAI
 
 Docs: https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions
 
-Base URL:  https://dashscope.aliyuncs.com/compatible-mode/v1
+Base URL:  https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 Auth:      QWEN_API_KEY (set in .env / environment)
 """
 
 from __future__ import annotations
 
 import json
+import os
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
-# Model tiers — use max for tool-calling (DataAgent), plus for text generation
-MODEL_MAX = "qwen3.7-max"
-MODEL_PLUS = "qwen3.7-plus"
+# Text + tool-calling (Data Agent) — lighter than Max to preserve budget for video gen
+MODEL_PLUS = os.getenv("QWEN_MODEL_DATA", "qwen3.7-plus")
+
+# Vision (Script + Storyboard) — VL tier with free-quota on Qwen Cloud
+MODEL_VL_PLUS = os.getenv("QWEN_MODEL_VISION", "qwen-vl-plus-2024-08-13")
 
 
 class QwenClient:
