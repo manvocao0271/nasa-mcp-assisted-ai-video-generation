@@ -13,11 +13,11 @@
 
 **Pale Blue Dot** is an autonomous AI agent pipeline with a Streamlit chat interface. Type a natural language request — *"reconstruct a windy day on Mars using terrain and weather data"* — and the system builds a short cinematic film grounded entirely in real NASA data.
 
-The Streamlit UI feeds your message to an Orchestrator agent (Qwen on Qwen Cloud) which decides which NASA tools to call, lets you pick reference images, writes a narration script from the results, generates a scene-by-scene storyboard, and produces a video clip via Wan / HappyHorse — all streamed back to your browser as it happens.
+The Streamlit UI feeds your message to an Orchestrator agent (Qwen on Qwen Cloud) which decides which NASA tools to call, lets you pick 1–3 reference images, writes a short caption per image, generates a visual prompt per scene, and produces one silent video clip per selected frame via Wan / HappyHorse — all streamed back to your browser as it happens.
 
 1. **Chat** — type any astronomy question or video request in natural language
 2. **Watch the pipeline run** — each agent step streams status updates to the UI in real time
-3. **Get a video** — the generated clip plays inline in the browser
+3. **Get video(s)** — one silent clip per selected NASA image plays inline
 4. **Inspect the sources** — NASA data used (images, orbital data, weather, exoplanet parameters) shown alongside
 
 Every frame is anchored to something real. No hallucinated planets, no invented missions — just terrain, weather, orbital context, and event data assembled into a scene.
@@ -40,15 +40,14 @@ Every frame is anchored to something real. No hallucinated planets, no invented 
 ┌─────────────┐  ┌────────────────┐  ┌─────────────────┐
 │  Data Agent │  │ Script Agent   │  │ Storyboard Agent│
 │             │  │                │  │                 │
-│ nasa-mcp    │  │ 3-act narration│  │ Visual prompt + │
-│ MCP tool    │  │ grounded in    │  │ NASA reference  │
-│ calls →     │  │ real NASA data │  │ frame attached  │
-│ raw assets  │  └────────────────┘  └────────┬────────┘
+│ nasa-mcp    │  │ scene captions │  │ Visual prompt + │
+│ MCP tool    │  │ (1 per image)  │  │ NASA reference  │
+│ calls →     │  └────────────────┘  │ frame per scene │
+│ raw assets  │                      └────────┬────────┘
 └─────────────┘                               │
                                 ┌─────────────▼───────────────┐
                                 │  Wan 2.7 (i2v / t2v)        │
-                                │  (Qwen Cloud video gen)     │
-                                │  one 10-second clip/scene   │
+                                │  one ~10s clip per scene    │
                                 └─────────────────────────────┘
 
 All LLM calls  → Qwen Cloud (Alibaba Cloud infrastructure)
@@ -177,7 +176,7 @@ app.py                  # Streamlit UI: chat, image picker, pipeline status, inl
 agent/                  # Multi-agent pipeline
   orchestrator.py       # Token-budget-aware pipeline driver
   data_agent.py         # Calls nasa-mcp tools → output/assets.json
-  script_agent.py       # Writes 3-act narration → output/script.json
+  script_agent.py       # Scene captions (1 per selected image) → output/script.json
   storyboard_agent.py   # Visual prompts + NASA ref frames → output/storyboard.json
   video_gen.py          # Wan 2.7 API client (Qwen Cloud) → output/clips/
   qwen_client.py        # OpenAI-compatible Qwen Cloud chat client
@@ -195,7 +194,7 @@ nasa_mcp/               # NASA MCP server (data backbone)
   server.py             # MCP server entry point
 output/                 # Generated artifacts (gitignored)
   assets.json           # NASA data fetched for the request
-  script.json           # 3-act narration (structured JSON)
+  script.json           # Scene captions (structured JSON, silent video)
   storyboard.json       # Per-scene visual prompts
   clips/                # Generated scene mp4(s)
   episode_manifest.json # Run summary: data sources, token spend, clip paths
@@ -228,9 +227,9 @@ This project is competing in **Track 2: AI Showrunner**, which requires an agent
 |---|---|---|
 | **Orchestrator** | Drives the pipeline, enforces token budget, writes run manifest | `episode_manifest.json` |
 | **Data Agent** | Calls NASA MCP tools, selects the best raw assets for a theme | `assets.json` (URLs, metadata) |
-| **Script Agent** | Writes a 3-act ~300-word narration grounded in the NASA data | `script.json` (scenes, narration, mood) |
-| **Storyboard Agent** | Converts each scene into a Wan/HappyHorse-compatible visual prompt, attaches NASA reference frames | `storyboard.json` (prompt, ref_image_url per scene) |
-| **Video Gen** | Calls Wan/HappyHorse via Qwen Cloud, polls for completion | `clips/scene_N.mp4` (currently one clip per run) |
+| **Script Agent** | Writes one short visual caption per selected NASA image | `script.json` (scenes, caption, mood, ref_image_url) |
+| **Storyboard Agent** | One Wan visual prompt per scene, each locked to its reference frame | `storyboard.json` |
+| **Video Gen** | One silent clip per storyboard entry via Wan/HappyHorse on Qwen Cloud | `clips/scene_N.mp4` |
 
 ### Data sources → scene reconstruction hooks
 
@@ -268,10 +267,10 @@ Track 2 has the highest token allowance of all tracks, but still enforces a ceil
 
 - [x] **M1 — Qwen Cloud wiring** — `agent/qwen_client.py` with tool-calling against nasa-mcp tools
 - [x] **M2 — Data Agent** — MCP tool calls end-to-end; `assets.json` produced for a natural language request
-- [x] **M3 — Script Agent** — 3-act narration generated from `assets.json` → `script.json`
+- [x] **M3 — Script Agent** — one caption scene per selected image → `script.json`
 - [x] **M4 — Storyboard Agent** — Visual prompts generated; NASA reference frames attached
 - [x] **M5 — Video Gen integration** — Wan/HappyHorse API on Qwen Cloud wired; single-scene clip generated
-- [x] **M6 — ffmpeg assembly** — removed; current pipeline produces one clip per run (multi-scene assembly TBD)
+- [x] **M6 — ffmpeg assembly** — removed; N silent clips per run (one per selected image), no concat yet
 - [x] **M7 — Orchestrator loop** — Full pipeline runs end-to-end with token-budget guard and resume-from-cache
 - [x] **M8 — Streamlit UI** — `app.py` chat interface, NASA image picker, per-step status streaming, inline video player, and NASA source panel
 - [ ] **M9 — Alibaba Cloud deployment** — MCP server + Streamlit app deployed to Alibaba Cloud ECS; proof-of-deployment recording created

@@ -70,9 +70,9 @@ ICONS = {
 }
 LABELS = {
     "data":       "Fetching NASA data",
-    "script":     "Writing narration script",
+    "script":     "Writing scene captions",
     "storyboard": "Generating storyboard",
-    "video":      "Generating video clip (Wan 2.7)",
+    "video":      "Generating video clips (Wan 2.7)",
 }
 
 
@@ -305,10 +305,11 @@ if st.session_state.phase == "generating":
             st.session_state.phase = "idle"
             st.stop()
 
-        # Show accumulated clips
-        scene_clips = _show_clips()
+        # Show clips from this run (manifest), not older files in output/clips/
+        manifest_clips = [Path(p) for p in manifest.get("clips", []) if Path(p).exists()]
+        scene_clips = manifest_clips or _show_clips()
         if scene_clips:
-            response_text = f"{len(scene_clips)} clip(s) in `output/clips/`:"
+            response_text = f"{len(scene_clips)} clip(s) generated:"
             with video_placeholder.container():
                 for clip in scene_clips:
                     st.caption(clip.name)

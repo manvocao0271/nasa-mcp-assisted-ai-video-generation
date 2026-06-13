@@ -1,14 +1,13 @@
-"""Video Gen — calls Wan 2.7 on Qwen Cloud to generate scene clips.
+"""Video Gen — calls Wan 2.7 on Qwen Cloud to generate scene clips (silent video only).
 
-For each storyboard entry, submits an async text-to-video job to the DashScope international API, polls until completion, downloads the MP4, and saves it to output/clips/scene_N.mp4.
-
-API reference: https://docs.qwencloud.com/developer-guides/video-generation/text-to-video
+For each storyboard entry, submits an async job, polls until completion, and saves to output/clips/scene_N.mp4.
 """
 
 from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Callable
 
 import httpx
 
@@ -19,13 +18,16 @@ _API_BASE = "https://dashscope-intl.aliyuncs.com/api/v1"
 _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
-MODEL_T2V = "happyhorse-1.0-t2v"      # text-to-video (no ref image)
-MODEL_I2V = "wan2.7-i2v-2026-04-25"  # image-to-video (NASA first frame → animated clip)
-MAX_POLL_SECONDS = 600  # 10 min timeout per clip
+MODEL_T2V = "happyhorse-1.0-t2v"
+MODEL_I2V = "wan2.7-i2v-2026-04-25"
+MAX_POLL_SECONDS = 600
+MAX_SCENES = 3
 
 
 class VideoGen:
-    """Wan 2.7 text-to-video client for Qwen Cloud."""
+    """Wan 2.7 client — one silent clip per storyboard entry."""
+
+    MAX_DURATION = 10
 
     def __init__(self, qwen_api_key: str, poll_interval: float = 10.0) -> None:
         self.qwen_api_key = qwen_api_key
@@ -36,26 +38,26 @@ class VideoGen:
             "X-DashScope-Async": "enable",
         }
 
-    MAX_CLIPS = 1
-    MAX_DURATION = 10  # seconds
-
-    def run(self, storyboard: list[dict]) -> list[Path]:
-        """Generate up to MAX_CLIPS new clips from the storyboard.
-
-        Always writes a new uniquely-named file so clips accumulate across runs.
-
-        Returns list of Path objects to the downloaded clip files.
-        """
+    def run(
+        self,
+        storyboard: list[dict],
+        on_clip_start: Callable[[int, int], None] | None = None,
+    ) -> list[Path]:
+        """Generate one clip per storyboard entry (up to MAX_SCENES)."""
         CLIPS_DIR.mkdir(parents=True, exist_ok=True)
         clips: list[Path] = []
+        entries = storyboard[:MAX_SCENES]
+        total = len(entries)
 
-        for entry in storyboard[: self.MAX_CLIPS]:
+        for i, entry in enumerate(entries):
             prompt = entry.get("prompt", "")
             if not prompt:
                 continue
 
+            if on_clip_start:
+                on_clip_start(i + 1, total)
+
             ref_url = entry.get("ref_image_url", "")
-            # Pick a unique filename so clips accumulate rather than overwrite
             clip_path = self._unique_clip_path(entry["scene"])
             duration = min(entry.get("duration_seconds", 5), self.MAX_DURATION)
             task_id = self._submit_job(prompt, duration, ref_image_url=ref_url)
@@ -65,9 +67,12 @@ class VideoGen:
 
         return clips
 
+    def generate_one(self, entry: dict) -> Path:
+        """Generate a single clip from one storyboard entry."""
+        return self.run([entry])[0]
+
     @staticmethod
     def _unique_clip_path(scene: int) -> Path:
-        """Return output/clips/scene_N.mp4, incrementing N until the name is free."""
         candidate = CLIPS_DIR / f"scene_{scene}.mp4"
         counter = 1
         while candidate.exists():
@@ -76,10 +81,6 @@ class VideoGen:
         return candidate
 
     def _submit_job(self, prompt: str, duration_seconds: int, ref_image_url: str = "") -> str:
-        """POST an async video generation job. Returns the task_id.
-
-        Uses wan2.7-i2v (image-to-video) when a valid NASA ref image URL is provided AND it is visually relevant to the prompt — the image becomes the first frame, giving Wan accurate visual grounding. Falls back to wan2.7-t2v (text-to-video) otherwise.
-        """
         use_ref = (
             ref_image_url
             and self._url_is_usable_image(ref_image_url)
@@ -119,14 +120,9 @@ class VideoGen:
 
     @staticmethod
     def _ref_matches_prompt(ref_url: str, prompt: str) -> bool:
-        """Heuristic: reject an APOD ref image that clearly doesn't match the prompt topic.
-
-        APOD URLs contain the image filename which often hints at the subject. If the prompt is about Mars/Earth/Moon/asteroid but the URL suggests a galaxy, nebula, or unrelated object, skip the ref so t2v is used.
-        """
         prompt_lower = prompt.lower()
         url_lower = ref_url.lower()
 
-        # Topic keywords the prompt is about
         TOPIC_HINTS = {
             "mars": ["mars", "martian", "rover", "curiosity", "perseverance"],
             "earth": ["earth", "epic", "dscovr", "globe", "terra"],
@@ -139,21 +135,14 @@ class VideoGen:
             prompt_is_about = any(k in prompt_lower for k in keywords)
             url_matches = any(k in url_lower for k in keywords)
             if prompt_is_about and not url_matches:
-                return False  # prompt expects this topic but URL doesn't show it
+                return False
 
         return True
 
     @staticmethod
     def _url_is_usable_image(url: str) -> bool:
-        """Check that the URL serves a supported image format AND is reachable by Wan's servers.
-
-        Some NASA hosts (images-assets.nasa.gov) are inaccessible from Wan's remote download infrastructure even though they respond to local HEAD requests.  These domains are blocklisted so we fall back to t2v.
-        """
         _SUPPORTED = ("image/jpeg", "image/png", "image/gif", "image/webp")
-        # Domains confirmed unreachable by Wan's video generation servers
-        _WAN_BLOCKED_DOMAINS = (
-            "images-assets.nasa.gov",
-        )
+        _WAN_BLOCKED_DOMAINS = ("images-assets.nasa.gov",)
         if any(blocked in url for blocked in _WAN_BLOCKED_DOMAINS):
             return False
         try:
@@ -165,7 +154,6 @@ class VideoGen:
             return False
 
     def _poll_job(self, task_id: str) -> str:
-        """Poll the task endpoint until SUCCEEDED. Returns the video_url."""
         url = _TASK_URL.format(task_id=task_id)
         poll_headers = {"Authorization": f"Bearer {self.qwen_api_key}"}
         deadline = time.monotonic() + MAX_POLL_SECONDS
@@ -192,8 +180,6 @@ class VideoGen:
         raise TimeoutError(f"Video generation timed out after {MAX_POLL_SECONDS}s (task={task_id})")
 
     def _download_clip(self, video_url: str, dest: Path) -> None:
-        """Stream-download the completed MP4 to dest."""
         with httpx.stream("GET", video_url, timeout=120, follow_redirects=True) as r:
             r.raise_for_status()
             dest.write_bytes(b"".join(r.iter_bytes()))
-
