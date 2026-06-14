@@ -201,6 +201,79 @@ output/                 # Generated artifacts (gitignored)
 tests/                  # Integration tests
 ```
 
+## Retrieval-Augmented Generation (RAG) & Embeddings Roadmap
+
+Purpose: Ground chat responses in real NASA data and reduce LLM hallucinations by retrieving and citing relevant artifacts (assets.json, script.json, storyboard.json, and NASA tool outputs). Implement in phases: a quick RAG prototype (no external deps), followed by embeddings + vector store for robust, low-latency retrieval.
+
+Phase 1 — Simple RAG (quick)
+- Implement a lightweight `Retriever` that reuses `DataAgent` to fetch and summarize NASA tool outputs for a user query.
+- Integrate the retriever into `agent/chat_agent.py`: call the retriever before the LLM call, include the top-K summarized passages as a system/context message with citations, then call the LLM. This immediately improves factuality with no new runtime dependencies.
+- Add a script to generate short summaries of `output/assets.json` (title, short snippet, source).
+
+Phase 2 — Embeddings + Vector Store (recommended)
+- Choose a vector store:
+  - Chroma — easy local on-disk index, low ops overhead
+  - FAISS — high-performance CPU index for larger corpora
+  - Milvus/Weaviate — production-grade managed stores
+- Add `agent/embeddings.py` (wraps Qwen embeddings API or `sentence-transformers`) and `agent/vector_store.py` (wraps Chroma/FAISS).
+- Create an indexing script `scripts/index_artifacts.py` that:
+  1. Reads `output/*.json` (assets, scripts, storyboards) and `nasa_mcp` documentation artifacts,
+  2. Extracts passages and metadata,
+  3. Computes embeddings,
+  4. Persists them into the vector store.
+- Query flow: embed the user's query → nearest-neighbor search → retrieve top-K passages with metadata → include passages (summaries + citations) in LLM prompt.
+
+Phase 3 — UI & infra
+- Update `app.py` to display retrieved source snippets inline with assistant replies and add a "Cite sources" or "Visualize these sources" action.
+- Add background indexing (worker or cron job) to keep the vector store in sync with `output/` runs.
+- Add unit/integration tests: `tests/test_retriever.py`, `tests/test_embeddings.py`.
+
+Dependencies (examples)
+
+```bash
+# Minimal (Phase 1)
+pip install -r requirements.txt
+
+# Phase 2 (embeddings + vector store)
+pip install chromadb sentence-transformers
+# or for FAISS:
+pip install faiss-cpu sentence-transformers
+```
+
+Minimal retrieval pseudo-code:
+
+```py
+from agent.retriever import Retriever
+from agent.qwen_client import QwenClient
+
+retriever = Retriever(vector_store=None)  # Phase 1: uses DataAgent
+passages = retriever.retrieve(user_message, top_k=5)
+
+system_msg = """Retrieved sources:
+{}
+""".format("\n".join([f"[{i+1}] {p['source']}: {p['snippet']}" for i,p in enumerate(passages)]))
+
+messages = [
+    {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "system", "content": system_msg},
+    {"role": "user", "content": user_message},
+]
+
+resp = qwen_client.chat(messages=messages, ...)
+```
+
+Migration checklist & file additions
+- `agent/embeddings.py` — embedding provider wrapper
+- `agent/vector_store.py` — Chroma/FAISS wrapper + simple API: `index(docs)`, `query(q, k=5)`
+- `agent/retriever.py` — retrieval orchestration (Phase1: DataAgent; Phase2: vector store)
+- `scripts/index_artifacts.py` — index existing outputs
+- `tests/test_retriever.py` — unit tests
+
+Caveats
+- Watch LLM token limits: summarize long tool outputs and include only top-k passages.
+- Balance retrieval size and prompt space; prefer short, citation-rich snippets.
+- Consider privacy/cost of embeddings API if using Qwen or a managed provider.
+
 ## Track 2: AI Showrunner — Hackathon Plan
 
 **Hackathon:** [Global AI Hackathon Series with Qwen Cloud](https://qwencloud-hackathon.devpost.com/) | **Deadline:** Jul 9, 2026 @ 5:00 pm EDT | **Prize:** $7,000 cash + $3,000 cloud credits
