@@ -9,6 +9,8 @@ Launch:
 from __future__ import annotations
 
 import os
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -17,6 +19,9 @@ from dotenv import load_dotenv
 from openai import AuthenticationError, APIError
 
 from agent.orchestrator import Orchestrator
+from agent.chat_agent import ChatAgent
+from agent.qwen_client import QwenClient
+from agent.run_db import RunDB, Message
 
 load_dotenv()
 
@@ -34,18 +39,48 @@ st.set_page_config(
 st.title("🌌 Pale Blue Dot")
 st.caption("Type an astronomy request and watch a short film get built in real time.")
 
-# ── Sidebar — source panel ────────────────────────────────────────────────────
+# ── Sidebar — conversation and source panel ──────────────────────────────────
 
 with st.sidebar:
-    st.header("NASA Sources")
-    sources_placeholder = st.empty()
-    sources_placeholder.info("Sources will appear here after a run.")
+    tab_chat, tab_history = st.tabs(["Chat", "History"])
+
+    with tab_chat:
+        st.header("NASA Sources")
+        sources_placeholder = st.empty()
+        sources_placeholder.info("Sources will appear here after a run.")
+
+    with tab_history:
+        st.header("Past Conversations")
+        conversations = st.session_state.run_db.list_conversations()
+        if conversations:
+            for conv in conversations:
+                conv_title = conv.get("title") or "Untitled"
+                conv_date = conv["created_at"][:10] if conv["created_at"] else ""
+                if st.button(f"📍 {conv_title}\n_{conv_date}_", use_container_width=True):
+                    st.session_state.conversation_id = conv["conversation_id"]
+                    # Load messages from conversation history
+                    history = st.session_state.run_db.get_conversation_history(conv["conversation_id"])
+                    st.session_state.messages = []
+                    for run in history:
+                        st.session_state.messages.append({"role": "user", "content": run["user_message"]})
+                        st.session_state.messages.append({"role": "assistant", "content": run["assistant_response"]})
+                    st.session_state.phase = "idle"
+                    st.rerun()
+        else:
+            st.info("No past conversations yet.")
 
 # ── Session state ─────────────────────────────────────────────────────────────
 # phase:
-#   "idle"       – waiting for user input
-#   "selecting"  – NASA data fetched, waiting for user to pick images
-#   "generating" – user confirmed selection, pipeline running
+#   "idle"              – waiting for user input, showing chat
+#   "video_request"     – user wants to generate video, fetching NASA data
+#   "image_selection"   – NASA data fetched, waiting for user to pick images
+#   "pipeline"          – user confirmed selection, pipeline running
+
+if "run_db" not in st.session_state:
+    st.session_state.run_db = RunDB()
+
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = str(uuid.uuid4())
 
 for key, default in [
     ("messages", []),
@@ -53,6 +88,7 @@ for key, default in [
     ("pending_message", ""),
     ("pending_assets", {}),
     ("resume_for_pipeline", False),
+    ("video_topic", ""),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -158,7 +194,7 @@ resume_mode = st.sidebar.toggle(
     help="Skip NASA fetch and Qwen script/storyboard calls — reuse the last run's cached outputs.",
 )
 
-# ── PHASE: idle — accept new user input ──────────────────────────────────────
+# ── PHASE: idle — chat with context ─────────────────────────────────────────
 
 user_input = st.chat_input(
     "Ask anything about the universe…",
@@ -167,21 +203,78 @@ user_input = st.chat_input(
 
 if user_input and st.session_state.phase == "idle":
     st.session_state.pending_message = user_input
-    st.session_state.resume_for_pipeline = resume_mode
 
     # Show user message immediately
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Fetch NASA data with live status
-    orchestrator = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
+    # Chat with context from conversation history
+    try:
+        qwen_client = QwenClient(api_key=QWEN_API_KEY)
+        chat_agent = ChatAgent(qwen_client)
+
+        # Load conversation history for context
+        history = st.session_state.run_db.get_conversation_history(st.session_state.conversation_id)
+
+        with st.chat_message("assistant"):
+            # Get response from ChatAgent
+            result = chat_agent.answer(user_input, history)
+            answer = result["answer"]
+            should_generate = result["should_generate_video"]
+            video_topic = result.get("video_topic", user_input)
+
+            # Display answer
+            st.markdown(answer)
+            # Display retrieved passages (if any) produced by the retriever
+            retrieved = result.get("retrieved_passages", [])
+            if retrieved:
+                with st.expander("Retrieved sources", expanded=False):
+                    for p in retrieved:
+                        snippet = (p.get("snippet") or "").strip()
+                        source = p.get("source") or "source"
+                        doc = p.get("doc_id") or ""
+                        if snippet:
+                            st.markdown(f"**{source}** — {snippet}  \n_{doc}_")
+                        else:
+                            st.markdown(f"**{source}** — {doc}")
+                # Add retrieval info to conversation history so it persists
+                passages_text = "\n".join([
+                    f"{p.get('source')}: {p.get('snippet','').strip()} ({p.get('doc_id','')})"
+                    for p in retrieved
+                ])
+                st.session_state.messages.append({"role": "assistant", "content": "Retrieved sources:\n" + passages_text})
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+
+            # Show video generation button if suggested
+            if should_generate:
+                st.session_state.video_topic = video_topic
+                if st.button("🎬 Generate Video", type="primary"):
+                    st.session_state.phase = "video_request"
+                    st.rerun()
+
+    except (AuthenticationError, APIError) as exc:
+        st.error(f"**Chat error:** {exc}")
+        st.session_state.phase = "idle"
+        st.stop()
+    except Exception as exc:
+        st.error(f"**Unexpected error:** {exc}")
+        st.session_state.phase = "idle"
+        st.stop()
+
+# ── PHASE: video_request — fetch data for video generation ──────────────────
+
+if st.session_state.phase == "video_request":
+    user_message = st.session_state.pending_message
+    video_topic = st.session_state.video_topic
+
     with st.chat_message("assistant"):
-        status_area = st.status("Fetching NASA data…", expanded=True)
+        status_area = st.status("Fetching NASA data for video…", expanded=True)
         assets: dict = {}
         try:
+            orchestrator = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
             with status_area:
-                for update in orchestrator.fetch_data(user_input, resume=resume_mode):
+                for update in orchestrator.fetch_data(video_topic, resume=False):
                     assets = update.get("assets", assets)
                     stage  = update["stage"]
                     status = update["status"]
@@ -201,22 +294,23 @@ if user_input and st.session_state.phase == "idle":
         except (AuthenticationError, APIError, Exception) as exc:
             status_area.update(label="Data fetch failed", state="error")
             st.error(f"**Error fetching NASA data:** {exc}")
+            st.session_state.phase = "idle"
             st.stop()
 
         st.session_state.pending_assets = assets
-        st.session_state.phase = "selecting"
+        st.session_state.phase = "image_selection"
         st.rerun()
 
-# ── PHASE: selecting — image picker ──────────────────────────────────────────
+# ── PHASE: image_selection — image picker ───────────────────────────────────
 
-if st.session_state.phase == "selecting":
+if st.session_state.phase == "image_selection":
     images = st.session_state.pending_assets.get("images", [])
 
     with st.chat_message("assistant"):
         if not images:
             st.warning("No images were returned by NASA tools. Generating video from text only.")
             if st.button("🎬 Generate Video (text only)"):
-                st.session_state.phase = "generating"
+                st.session_state.phase = "pipeline"
                 st.rerun()
         else:
             st.markdown(
@@ -264,12 +358,12 @@ if st.session_state.phase == "selecting":
                 filtered_assets = dict(st.session_state.pending_assets)
                 filtered_assets["images"] = selected
                 st.session_state.pending_assets = filtered_assets
-                st.session_state.phase = "generating"
+                st.session_state.phase = "pipeline"
                 st.rerun()
 
-# ── PHASE: generating — run the rest of the pipeline ─────────────────────────
+# ── PHASE: pipeline — run the rest of the pipeline ──────────────────────────
 
-if st.session_state.phase == "generating":
+if st.session_state.phase == "pipeline":
     user_message  = st.session_state.pending_message
     assets        = st.session_state.pending_assets
     resume        = st.session_state.resume_for_pipeline
@@ -322,6 +416,21 @@ if st.session_state.phase == "generating":
 
         st.markdown(response_text)
         st.session_state.messages.append({"role": "assistant", "content": response_text})
+
+        # Save run to database
+        run_id = str(uuid.uuid4())
+        st.session_state.run_db.save_run(
+            run_id=run_id,
+            conversation_id=st.session_state.conversation_id,
+            user_message=user_message,
+            assistant_response=response_text,
+            assets=assets,
+            manifest=manifest,
+            messages=[
+                Message(role=m["role"], content=m["content"], timestamp=datetime.now().isoformat())
+                for m in st.session_state.messages
+            ],
+        )
 
         # Update sidebar
         _update_sidebar(assets.get("images", []))
