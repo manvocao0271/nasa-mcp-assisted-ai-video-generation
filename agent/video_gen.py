@@ -86,15 +86,18 @@ class VideoGen:
             and self._url_is_usable_image(ref_image_url)
             and self._ref_matches_prompt(ref_image_url, prompt)
         )
+        # Append strict motion & lighting directives to avoid zooms and brightness shifts
+        final_prompt = f"{prompt}\n\n{self._build_motion_directives(duration_seconds)}"
+
         if use_ref:
             model = MODEL_I2V
             inp: dict = {
-                "prompt": prompt,
+                "prompt": final_prompt,
                 "media": [{"type": "first_frame", "url": ref_image_url}],
             }
         else:
             model = MODEL_T2V
-            inp = {"prompt": prompt}
+            inp = {"prompt": final_prompt}
 
         body = {
             "model": model,
@@ -117,6 +120,27 @@ class VideoGen:
         if not task_id:
             raise RuntimeError(f"No task_id in submit response: {data}")
         return task_id
+
+    def _build_motion_directives(self, duration_seconds: int) -> str:
+        """Return a short block of directives forcing orbit/rotation motion and constant lighting.
+
+        These directives are purposely explicit to guide the video model:
+        - Orbit/rotate the camera around the subject at a fixed distance (no zoom/scale change)
+        - Keep the entire subject fully in frame for the whole clip
+        - Use smooth, continuous rotation; avoid sudden jerks
+        - Maintain constant exposure/brightness for all light sources; do NOT increase bloom,
+          lens flare, or brightness of stars/galaxies during the clip
+        - Keep styling photorealistic with minimal dynamic color grading
+        """
+        return (
+            "VIDEO_DIRECTIVES: Camera behavior — orbit/rotate around the subject at a fixed distance; "
+            "do NOT zoom in or out (no scale change). Keep the entire subject fully in frame for the entire clip. "
+            "Motion: smooth, continuous rotation/orbit at constant speed; no sudden jerks or accelerations. "
+            "Lighting: maintain constant exposure and brightness for all light sources; do NOT increase bloom, "
+            "lens flares, or brightness of stars/galaxies during the duration. "
+            "Style: photorealistic, minimal color grading. "
+            f"Duration: {duration_seconds} seconds."
+        )
 
     @staticmethod
     def _ref_matches_prompt(ref_url: str, prompt: str) -> bool:
