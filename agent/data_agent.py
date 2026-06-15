@@ -137,7 +137,15 @@ class DataAgent:
                 all_results: list[dict] = []
 
                 for _ in range(MAX_TOOL_ITERATIONS):
-                    response = client.chat(messages, tools=openai_tools)
+                    try:
+                        response = client.chat(messages, tools=openai_tools)
+                    except Exception as e:
+                        # If the LLM call fails, append a helpful assistant message
+                        # and stop the tool-calling loop instead of crashing.
+                        err_text = f"Error calling LLM for tool-calling: {e}"
+                        messages.append({"role": "assistant", "content": err_text})
+                        break
+
                     msg = response.choices[0].message
 
                     # Append assistant turn (tool_calls or final text)
@@ -154,18 +162,24 @@ class DataAgent:
                         tools_called.append(tool_name)
 
                         # Call the MCP tool — FastMCP expects args wrapped under "args"
-                        mcp_result = await session.call_tool(
-                            tool_name, {"args": tool_args}
-                        )
-                        result_text = next(
-                            (item.text for item in mcp_result.content if isinstance(item, TextContent)),
-                            "{}",
-                        )
-
                         try:
-                            parsed = json.loads(result_text)
-                        except json.JSONDecodeError:
-                            parsed = {"raw": result_text}
+                            mcp_result = await session.call_tool(
+                                tool_name, {"args": tool_args}
+                            )
+                            result_text = next(
+                                (item.text for item in mcp_result.content if isinstance(item, TextContent)),
+                                "{}",
+                            )
+                            try:
+                                parsed = json.loads(result_text)
+                            except json.JSONDecodeError:
+                                parsed = {"raw": result_text}
+                        except Exception as e:
+                            # Record the error as the tool's raw result so downstream
+                            # agents can still proceed with partial data.
+                            err_msg = str(e)
+                            result_text = json.dumps({"raw_error": err_msg})
+                            parsed = {"raw": err_msg}
 
                         all_results.append({"tool": tool_name, "result": parsed})
 

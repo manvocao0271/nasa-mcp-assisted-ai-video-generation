@@ -1,36 +1,53 @@
-"""Chat agent — multi-turn conversation with NASA tool context.
+"""Chat agent — multi-turn conversation with optional NASA asset grounding.
 
 Handles user inquiries about the universe with persistent conversation history.
-Maintains context across turns and optionally triggers video generation for complex queries.
+Optionally triggers video generation when the user explicitly asks for a video.
 """
 
 from __future__ import annotations
 
-import json
 import os
-from typing import Optional
+import re
 
 from agent.qwen_client import QwenClient
 from agent.retriever import Retriever
 
 
 SYSTEM_PROMPT = """You are an expert astronomy guide and universe educator.
-You have access to NASA tools including:
-- APOD (Astronomy Picture of the Day)
-- DONKI (space weather events)
-- EPIC (Earth imagery)
-- NEO (near-Earth objects)
-- Exoplanet database
-- NASA Image Library
 
-When answering questions:
-1. Use your knowledge to explain concepts clearly
-2. Reference NASA data when relevant
-3. Suggest visual examples (say "I can generate a video showing..." when appropriate)
-4. Keep responses concise but informative
+When cached NASA data is provided below, you may reference it. You do not call
+live NASA APIs during chat — video generation (when requested) fetches fresh data.
 
-For complex topics or when the user wants visual learning, suggest: "Would you like me to generate a short video showing this?"
+When answering:
+1. Explain concepts clearly and concisely
+2. Use any provided NASA excerpts as grounding when relevant
+3. If a visual would help, you may offer: "Would you like me to generate a short video showing this?"
+
+Do not claim you are fetching live NASA data during chat.
 """
+
+# User must explicitly ask for video — not broad phrases like "show me" alone.
+_USER_VIDEO_PATTERNS = (
+    r"\bgenerate\s+(a\s+)?video\b",
+    r"\bmake\s+(a\s+)?video\b",
+    r"\bcreate\s+(a\s+)?video\b",
+    r"\bproduce\s+(a\s+)?video\b",
+    r"\bshort\s+video\b",
+    r"\bshort\s+film\b",
+    r"\bvideo\s+(about|of|showing|on)\b",
+    r"\bfilm\s+(about|of|showing|on)\b",
+    r"\banimate\b",
+    r"\bwhat\s+it'?s?\s+like\s+(on|at|in)\b.+\b(video|film|clip)\b",
+    r"\bshow\s+me.+\b(video|film|clip)\b",
+)
+
+_ASSISTANT_VIDEO_OFFERS = (
+    "would you like me to generate a short video",
+    "would you like me to generate a video",
+    "i can generate a short video",
+    "i can generate a video showing",
+    "generate a short video showing",
+)
 
 
 class ChatAgent:
@@ -38,83 +55,45 @@ class ChatAgent:
 
     def __init__(self, qwen_client: QwenClient):
         self.client = qwen_client
-        self.model = os.environ.get("QWEN_CHAT_MODEL", "qwen3.7-plus")
 
     def answer(
         self,
         user_message: str,
         conversation_history: list[dict] | None = None,
     ) -> dict:
-        """
-        Answer a user query with conversation context.
-
-        Args:
-            user_message: The user's current question
-            conversation_history: Previous turns (optional)
-
-        Returns:
-            {
-                "answer": str,  # Assistant response
-                "should_generate_video": bool,  # If user wants a video
-                "video_topic": str | None,  # What to make a video about
-            }
-        """
+        """Answer a user query with conversation context."""
         if conversation_history is None:
             conversation_history = []
 
-        # Rebuild message history for context
-        messages = []
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-        # Add system prompt
-        messages.append({"role": "system", "content": SYSTEM_PROMPT})
-
-        # Phase 1 RAG: fetch short grounding passages from NASA assets and
-        # inject them as an additional system message to ground the model.
         passages = []
         try:
-            retriever = Retriever()
-            passages = retriever.retrieve(user_message, top_k=5)
-            if passages:
-                retrieved_text = retriever.format_for_prompt(passages)
-                if retrieved_text:
-                    messages.append({"role": "system", "content": retrieved_text})
+            if os.path.exists("output/assets.json"):
+                retriever = Retriever()
+                passages = retriever.retrieve(user_message, top_k=5, resume=True)
+                if passages:
+                    retrieved_text = retriever.format_for_prompt(passages)
+                    if retrieved_text:
+                        messages.append({"role": "system", "content": retrieved_text})
         except Exception:
-            # Swallow retrieval errors — chat should still work without RAG.
             passages = []
 
-        # Add conversation history (limit to last 5 turns to control context)
         for prev_run in conversation_history[-5:]:
-            if "messages" in prev_run and prev_run["messages"]:
+            if prev_run.get("messages"):
                 for msg in prev_run["messages"]:
                     messages.append({"role": msg["role"], "content": msg["content"]})
             else:
-                # Fallback: use user_message and assistant_response
                 messages.append({"role": "user", "content": prev_run["user_message"]})
                 messages.append({"role": "assistant", "content": prev_run["assistant_response"]})
 
-        # Add current user message
         messages.append({"role": "user", "content": user_message})
 
-        # Get response from Qwen
-        response = self.client.chat(
-            messages=messages,
-            model=self.model,
-            temperature=0.7,
-            max_tokens=1024,
-        )
+        response = self.client.chat(messages=messages)
+        answer = response.choices[0].message.content or ""
 
-        answer = response.choices[0].message.content
-
-        # Simple heuristic: detect if user wants a video
-        should_generate = any(
-            phrase in user_message.lower()
-            for phrase in ["show me", "generate", "create", "video", "visual", "see a"]
-        )
-
-        video_topic = None
-        if should_generate:
-            # Try to extract what they want to see (very simple)
-            video_topic = self._extract_topic(user_message)
+        should_generate = self._wants_video(user_message, answer)
+        video_topic = user_message[:200] if should_generate else None
 
         return {
             "answer": answer,
@@ -123,58 +102,22 @@ class ChatAgent:
             "retrieved_passages": passages,
         }
 
-    def _extract_topic(self, user_message: str) -> str:
-        """Simple topic extraction from user message."""
-        # Just use the message itself as the topic for now
-        # In production, this could use NER or another model
-        return user_message[:100]
+    @staticmethod
+    def _wants_video(user_message: str, answer: str) -> bool:
+        user_lower = (user_message or "").lower()
+        answer_lower = (answer or "").lower()
+
+        if any(re.search(p, user_lower) for p in _USER_VIDEO_PATTERNS):
+            return True
+
+        return any(phrase in answer_lower for phrase in _ASSISTANT_VIDEO_OFFERS)
 
     def chat_with_streaming(
         self,
         user_message: str,
         conversation_history: list[dict] | None = None,
     ):
-        """
-        Stream a chat response token by token.
-
-        Yields dicts with "text" key containing response chunks.
-        """
-        if conversation_history is None:
-            conversation_history = []
-
-        messages = []
-        messages.append({"role": "system", "content": SYSTEM_PROMPT})
-
-        # Phase 1 RAG (streaming): fetch grounding passages synchronously
-        try:
-            retriever = Retriever()
-            passages = retriever.retrieve(user_message, top_k=5)
-            if passages:
-                retrieved_text = retriever.format_for_prompt(passages)
-                if retrieved_text:
-                    messages.append({"role": "system", "content": retrieved_text})
-        except Exception:
-            pass
-
-        for prev_run in conversation_history[-5:]:
-            if "messages" in prev_run and prev_run["messages"]:
-                for msg in prev_run["messages"]:
-                    messages.append({"role": msg["role"], "content": msg["content"]})
-            else:
-                messages.append({"role": "user", "content": prev_run["user_message"]})
-                messages.append({"role": "assistant", "content": prev_run["assistant_response"]})
-
-        messages.append({"role": "user", "content": user_message})
-
-        # Stream from Qwen (if streaming is supported in the client)
-        response = self.client.chat(
-            messages=messages,
-            model=self.model,
-            temperature=0.7,
-            max_tokens=1024,
-            stream=True,
-        )
-
-        for chunk in response:
-            if chunk.choices[0].delta.content:
-                yield {"text": chunk.choices[0].delta.content}
+        """Yield the full response in one chunk (streaming not yet wired in QwenClient)."""
+        result = self.answer(user_message, conversation_history)
+        if result["answer"]:
+            yield {"text": result["answer"]}

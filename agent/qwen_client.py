@@ -64,6 +64,9 @@ MODEL_PLUS = os.getenv("QWEN_MODEL_DATA", "qwen3.7-plus")
 # Vision (Script + Storyboard) — VL tier with free-quota on Qwen Cloud
 MODEL_VL_PLUS = os.getenv("QWEN_MODEL_VISION", "qwen-vl-plus-2024-08-13")
 
+# Chat (Streamlit ChatAgent) — separate from data/vision to allow fine-tuned overrides
+MODEL_CHAT = os.getenv("QWEN_CHAT_MODEL", "qwen3.7-plus")
+
 
 class QwenClient:
     """Synchronous Qwen Cloud chat client with token-usage tracking.
