@@ -1,4 +1,4 @@
-"""Video Gen — calls Wan 2.7 on Qwen Cloud to generate scene clips (silent video only).
+"""Video Gen — calls Wan visual models on Qwen Cloud to generate scene clips (silent video only).
 
 For each storyboard entry, submits an async job, polls until completion, and saves to output/clips/scene_N.mp4.
 """
@@ -18,14 +18,14 @@ _API_BASE = "https://dashscope-intl.aliyuncs.com/api/v1"
 _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
-MODEL_T2V = "happyhorse-1.0-t2v"
+MODEL_T2V = "wan2.1-t2v-turbo"
 MODEL_I2V = "wan2.7-i2v-2026-04-25"
 MAX_POLL_SECONDS = 600
 MAX_SCENES = 3
 
 
 class VideoGen:
-    """Wan 2.7 client — one silent clip per storyboard entry."""
+    """Wan visual-model client — one silent clip per storyboard entry."""
 
     MAX_DURATION = 10
 
@@ -99,14 +99,18 @@ class VideoGen:
             model = MODEL_T2V
             inp = {"prompt": final_prompt}
 
+        params = {
+            "resolution": "720P",
+            "prompt_extend": True,
+        }
+
+        if model == MODEL_I2V:
+            params["duration"] = max(2, min(duration_seconds, 15))
+
         body = {
             "model": model,
             "input": inp,
-            "parameters": {
-                "resolution": "720P",
-                "duration": max(2, min(duration_seconds, 15)),
-                "prompt_extend": True,
-            },
+            "parameters": params,
         }
         with httpx.Client(timeout=30) as client:
             resp = client.post(_SUBMIT_URL, json=body, headers=self._headers)
