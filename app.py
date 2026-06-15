@@ -20,13 +20,14 @@ from openai import AuthenticationError, APIError
 
 from agent.orchestrator import Orchestrator
 from agent.chat_agent import ChatAgent
-from agent.qwen_client import QwenClient
+from agent.qwen_client import QwenClient, MODEL_CHAT
 from agent.run_db import RunDB, Message
 
 load_dotenv()
 
 NASA_API_KEY = os.environ.get("NASA_API_KEY", "DEMO_KEY")
 QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
+DEBUG = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
 
 # ── Page config ──────────────────────────────────────────────────────────────
 
@@ -38,6 +39,29 @@ st.set_page_config(
 
 st.title("🌌 Pale Blue Dot")
 st.caption("Type an astronomy request and watch a short film get built in real time.")
+
+# ── Session state ─────────────────────────────────────────────────────────────
+# phase:
+#   "idle"              – waiting for user input, showing chat
+#   "video_request"     – user wants to generate video, fetching NASA data
+#   "image_selection"   – NASA data fetched, waiting for user to pick images
+#   "pipeline"          – user confirmed selection, pipeline running
+
+if "run_db" not in st.session_state:
+    st.session_state.run_db = RunDB()
+
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = str(uuid.uuid4())
+
+for key, default in [
+    ("messages", []),
+    ("phase", "idle"),
+    ("pending_message", ""),
+    ("pending_assets", {}),
+    ("video_topic", ""),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 # ── Sidebar — conversation and source panel ──────────────────────────────────
 
@@ -68,30 +92,6 @@ with st.sidebar:
                     st.rerun()
         else:
             st.info("No past conversations yet.")
-
-# ── Session state ─────────────────────────────────────────────────────────────
-# phase:
-#   "idle"              – waiting for user input, showing chat
-#   "video_request"     – user wants to generate video, fetching NASA data
-#   "image_selection"   – NASA data fetched, waiting for user to pick images
-#   "pipeline"          – user confirmed selection, pipeline running
-
-if "run_db" not in st.session_state:
-    st.session_state.run_db = RunDB()
-
-if "conversation_id" not in st.session_state:
-    st.session_state.conversation_id = str(uuid.uuid4())
-
-for key, default in [
-    ("messages", []),
-    ("phase", "idle"),
-    ("pending_message", ""),
-    ("pending_assets", {}),
-    ("resume_for_pipeline", False),
-    ("video_topic", ""),
-]:
-    if key not in st.session_state:
-        st.session_state[key] = default
 
 # ── Chat history replay ───────────────────────────────────────────────────────
 
@@ -179,6 +179,29 @@ def _update_sidebar(images: list[dict]) -> None:
         sources_placeholder.info("No images in this run.")
 
 
+def _save_chat_turn(user_message: str, assistant_response: str) -> None:
+    """Persist a chat-only turn so History and multi-turn context work without video."""
+    conv_id = st.session_state.conversation_id
+    history_before = st.session_state.run_db.get_conversation_history(conv_id)
+    is_first = len(history_before) == 0
+
+    run_id = str(uuid.uuid4())
+    st.session_state.run_db.save_run(
+        run_id=run_id,
+        conversation_id=conv_id,
+        user_message=user_message,
+        assistant_response=assistant_response,
+        assets={},
+        manifest={},
+        messages=[
+            Message(role=m["role"], content=m["content"], timestamp=datetime.now().isoformat())
+            for m in st.session_state.messages
+        ],
+    )
+    if is_first:
+        st.session_state.run_db.set_conversation_title(conv_id, user_message[:120])
+
+
 # ── Guards ────────────────────────────────────────────────────────────────────
 
 if not QWEN_API_KEY:
@@ -191,8 +214,38 @@ resume_mode = st.sidebar.toggle(
     "♻️ Retry (use cached data)",
     value=False,
     disabled=not _cache_exists,
-    help="Skip NASA fetch and Qwen script/storyboard calls — reuse the last run's cached outputs.",
+    help="Reuse cached NASA assets and script/storyboard from the last run when available.",
 )
+
+if st.sidebar.button("🎬 Generate video from last message", use_container_width=True):
+    last_user = ""
+    for m in reversed(st.session_state.get("messages", [])):
+        if m.get("role") == "user":
+            last_user = m.get("content") or ""
+            break
+    if not last_user:
+        last_user = st.session_state.get("pending_message", "") or ""
+    if not last_user:
+        st.sidebar.warning("No user message found.")
+    else:
+        st.session_state.pending_message = last_user
+        st.session_state.video_topic = last_user
+        st.session_state.phase = "video_request"
+        st.rerun()
+
+if DEBUG:
+    with st.sidebar.expander("Debug", expanded=False):
+        st.write("phase:", st.session_state.get("phase"))
+        pending = st.session_state.get("pending_assets") or {}
+        st.write("pending_assets.images:", len(pending.get("images", [])))
+        st.write("pending_message:", st.session_state.get("pending_message"))
+        st.write("video_topic:", st.session_state.get("video_topic"))
+        st.write("resume_mode:", resume_mode)
+        imgs = {
+            k: v for k, v in st.session_state.items()
+            if isinstance(k, str) and k.startswith("img_check_")
+        }
+        st.write("img_check_*:", imgs)
 
 # ── PHASE: idle — chat with context ─────────────────────────────────────────
 
@@ -211,22 +264,18 @@ if user_input and st.session_state.phase == "idle":
 
     # Chat with context from conversation history
     try:
-        qwen_client = QwenClient(api_key=QWEN_API_KEY)
+        qwen_client = QwenClient(api_key=QWEN_API_KEY, model=MODEL_CHAT)
         chat_agent = ChatAgent(qwen_client)
 
-        # Load conversation history for context
         history = st.session_state.run_db.get_conversation_history(st.session_state.conversation_id)
 
         with st.chat_message("assistant"):
-            # Get response from ChatAgent
             result = chat_agent.answer(user_input, history)
             answer = result["answer"]
             should_generate = result["should_generate_video"]
             video_topic = result.get("video_topic", user_input)
 
-            # Display answer
             st.markdown(answer)
-            # Display retrieved passages (if any) produced by the retriever
             retrieved = result.get("retrieved_passages", [])
             if retrieved:
                 with st.expander("Retrieved sources", expanded=False):
@@ -238,18 +287,13 @@ if user_input and st.session_state.phase == "idle":
                             st.markdown(f"**{source}** — {snippet}  \n_{doc}_")
                         else:
                             st.markdown(f"**{source}** — {doc}")
-                # Add retrieval info to conversation history so it persists
-                passages_text = "\n".join([
-                    f"{p.get('source')}: {p.get('snippet','').strip()} ({p.get('doc_id','')})"
-                    for p in retrieved
-                ])
-                st.session_state.messages.append({"role": "assistant", "content": "Retrieved sources:\n" + passages_text})
-            st.session_state.messages.append({"role": "assistant", "content": answer})
 
-            # Show video generation button if suggested
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+            _save_chat_turn(user_input, answer)
+
             if should_generate:
                 st.session_state.video_topic = video_topic
-                if st.button("🎬 Generate Video", type="primary"):
+                if st.button("🎬 Generate Video", type="primary", key="btn_generate_video_request"):
                     st.session_state.phase = "video_request"
                     st.rerun()
 
@@ -274,7 +318,7 @@ if st.session_state.phase == "video_request":
         try:
             orchestrator = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
             with status_area:
-                for update in orchestrator.fetch_data(video_topic, resume=False):
+                for update in orchestrator.fetch_data(video_topic, resume=resume_mode):
                     assets = update.get("assets", assets)
                     stage  = update["stage"]
                     status = update["status"]
@@ -309,8 +353,9 @@ if st.session_state.phase == "image_selection":
     with st.chat_message("assistant"):
         if not images:
             st.warning("No images were returned by NASA tools. Generating video from text only.")
-            if st.button("🎬 Generate Video (text only)"):
+            if st.button("🎬 Generate Video (text only)", key="btn_generate_video_text_only"):
                 st.session_state.phase = "pipeline"
+                st.session_state.use_cached_pipeline = resume_mode
                 st.rerun()
         else:
             st.markdown(
@@ -328,20 +373,35 @@ if st.session_state.phase == "image_selection":
                     caption = img.get("caption") or img.get("title") or ""
                     if caption:
                         st.caption(caption[:80])
+
+                    key = f"img_check_{i}"
+                    # Ensure a stable default exists in session state so the
+                    # checkbox and toggle button stay in sync across reruns.
+                    if key not in st.session_state:
+                        st.session_state[key] = True
+
+                    # Render the checkbox (drives session state under `key`).
                     st.checkbox(
                         "Use this image",
-                        value=True,
-                        key=f"img_check_{i}",
+                        value=st.session_state.get(key, True),
+                        key=key,
                         label_visibility="visible",
                     )
 
+                    # Provide a convenient toggle button (clicking the image
+                    # itself isn't clickable), which flips the checkbox state.
+                    toggle_label = "Deselect" if st.session_state.get(key, True) else "Select"
+                    if st.button(toggle_label, key=f"img_toggle_{i}", use_container_width=True):
+                        st.session_state[key] = not st.session_state.get(key, True)
+                        st.rerun()
+
             col_btn, col_all, col_none = st.columns([2, 1, 1])
-            generate_clicked = col_btn.button("🎬 Generate Video", type="primary", use_container_width=True)
-            if col_all.button("Select all", use_container_width=True):
+            generate_clicked = col_btn.button("🎬 Generate Video", type="primary", use_container_width=True, key="btn_generate_video_images")
+            if col_all.button("Select all", use_container_width=True, key="btn_select_all_images"):
                 for i in range(len(images)):
                     st.session_state[f"img_check_{i}"] = True
                 st.rerun()
-            if col_none.button("Select none", use_container_width=True):
+            if col_none.button("Select none", use_container_width=True, key="btn_select_none_images"):
                 for i in range(len(images)):
                     st.session_state[f"img_check_{i}"] = False
                 st.rerun()
@@ -359,6 +419,7 @@ if st.session_state.phase == "image_selection":
                 filtered_assets["images"] = selected
                 st.session_state.pending_assets = filtered_assets
                 st.session_state.phase = "pipeline"
+                st.session_state.use_cached_pipeline = resume_mode
                 st.rerun()
 
 # ── PHASE: pipeline — run the rest of the pipeline ──────────────────────────
@@ -366,7 +427,7 @@ if st.session_state.phase == "image_selection":
 if st.session_state.phase == "pipeline":
     user_message  = st.session_state.pending_message
     assets        = st.session_state.pending_assets
-    resume        = st.session_state.resume_for_pipeline
+    resume        = st.session_state.get("use_cached_pipeline", resume_mode)
     orchestrator  = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
 
     with st.chat_message("assistant"):
@@ -436,4 +497,5 @@ if st.session_state.phase == "pipeline":
         _update_sidebar(assets.get("images", []))
 
     st.session_state.phase = "idle"
+    st.session_state.pop("use_cached_pipeline", None)
 

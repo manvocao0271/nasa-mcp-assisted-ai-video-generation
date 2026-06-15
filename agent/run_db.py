@@ -74,6 +74,15 @@ class RunDB:
             )
             conn.commit()
 
+    def set_conversation_title(self, conversation_id: str, title: str) -> None:
+        """Set the display title for a conversation (typically first user message)."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE conversations SET title = ? WHERE conversation_id = ?",
+                (title[:120], conversation_id),
+            )
+            conn.commit()
+
     def save_run(
         self,
         run_id: str,
