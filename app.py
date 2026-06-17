@@ -270,13 +270,18 @@ if user_input and st.session_state.phase == "idle":
         history = st.session_state.run_db.get_conversation_history(st.session_state.conversation_id)
 
         with st.chat_message("assistant"):
-            result = chat_agent.answer(user_input, history)
-            answer = result["answer"]
-            should_generate = result["should_generate_video"]
-            video_topic = result.get("video_topic", user_input)
+            result: dict = {}
 
-            st.markdown(answer)
+            answer = st.write_stream(
+                chat_agent.answer_stream_internal(user_input, history, result)
+            )
+            answer = answer if isinstance(answer, str) else "".join(answer)
+
+            # answer is the full string returned by st.write_stream
+            should_generate = result.get("should_generate_video", False)
+            video_topic = result.get("video_topic", user_input)
             retrieved = result.get("retrieved_passages", [])
+
             if retrieved:
                 with st.expander("Retrieved sources", expanded=False):
                     for p in retrieved:

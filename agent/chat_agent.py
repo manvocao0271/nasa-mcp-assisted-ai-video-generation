@@ -49,6 +49,13 @@ _ASSISTANT_VIDEO_OFFERS = (
     "generate a short video showing",
 )
 
+# Short affirmative replies that confirm the assistant's video offer.
+_AFFIRMATIVE_PATTERNS = (
+    r"^\s*(yes|yeah|yep|yup|sure|ok|okay|please|go ahead|do\s+it|absolutely|definitely|of\s+course|sounds\s+good|let'?s?\s+do\s+it|go\s+for\s+it)\s*[.!]?\s*$",
+    r"^\s*yes[,\s]+please\s*[.!]?\s*$",
+    r"^\s*please\s+(do|generate|make|create)\s+(it|that|a\s+video)\s*[.!]?\s*$",
+)
+
 
 class ChatAgent:
     """Maintains multi-turn conversations with astronomy context."""
@@ -79,13 +86,12 @@ class ChatAgent:
         except Exception:
             passages = []
 
+        # Use simple user/assistant pairs — the messages field stores the full
+        # accumulated history per run, so appending all runs' messages lists
+        # causes exponential duplication that floods the context window.
         for prev_run in conversation_history[-5:]:
-            if prev_run.get("messages"):
-                for msg in prev_run["messages"]:
-                    messages.append({"role": msg["role"], "content": msg["content"]})
-            else:
-                messages.append({"role": "user", "content": prev_run["user_message"]})
-                messages.append({"role": "assistant", "content": prev_run["assistant_response"]})
+            messages.append({"role": "user", "content": prev_run["user_message"]})
+            messages.append({"role": "assistant", "content": prev_run["assistant_response"]})
 
         messages.append({"role": "user", "content": user_message})
 
@@ -103,6 +109,11 @@ class ChatAgent:
         }
 
     @staticmethod
+    def _is_affirmative(text: str) -> bool:
+        """Return True if *text* is a short affirmative reply."""
+        return any(re.search(p, text.strip(), re.IGNORECASE) for p in _AFFIRMATIVE_PATTERNS)
+
+    @staticmethod
     def _wants_video(user_message: str, answer: str) -> bool:
         user_lower = (user_message or "").lower()
         answer_lower = (answer or "").lower()
@@ -111,6 +122,111 @@ class ChatAgent:
             return True
 
         return any(phrase in answer_lower for phrase in _ASSISTANT_VIDEO_OFFERS)
+
+    def answer_stream_internal(
+        self,
+        user_message: str,
+        conversation_history: list[dict] | None,
+        result: dict,
+    ):
+        """Yield plain-text tokens and populate *result* when done.
+
+        Designed for use with ``st.write_stream()``:
+
+            result = {}
+            answer = st.write_stream(
+                chat_agent.answer_stream_internal(msg, history, result)
+            )
+
+        After ``st.write_stream`` returns, *result* contains:
+        - ``answer``               – full response string
+        - ``should_generate_video`` – bool
+        - ``video_topic``          – str
+        - ``retrieved_passages``   – list[dict]
+
+        Thinking tokens enclosed in ``<think>…</think>`` are filtered out so
+        they never reach the UI, even when a reasoning-capable model is used.
+        """
+        if conversation_history is None:
+            conversation_history = []
+
+        # ── Affirmative shortcut ──────────────────────────────────────────────
+        # If the user is just saying "yes/sure/please" in response to the
+        # assistant's previous video offer, skip the LLM call entirely and
+        # trigger video generation immediately.
+        last_run = conversation_history[-1] if conversation_history else None
+        if last_run and self._is_affirmative(user_message):
+            last_assistant = last_run.get("assistant_response", "")
+            if any(phrase in last_assistant.lower() for phrase in _ASSISTANT_VIDEO_OFFERS):
+                topic = last_run.get("user_message", user_message)[:200]
+                msg = "Let's generate that video! Starting now…"
+                result["answer"] = msg
+                result["should_generate_video"] = True
+                result["video_topic"] = topic
+                result["retrieved_passages"] = []
+                yield msg
+                return
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+        passages: list = []
+        try:
+            if os.path.exists("output/assets.json"):
+                retriever = Retriever()
+                passages = retriever.retrieve(user_message, top_k=5, resume=True)
+                if passages:
+                    retrieved_text = retriever.format_for_prompt(passages)
+                    if retrieved_text:
+                        messages.append({"role": "system", "content": retrieved_text})
+        except Exception:
+            passages = []
+
+        # Use simple user/assistant pairs — the messages field stores the full
+        # accumulated history per run, so appending all runs' messages lists
+        # causes exponential duplication that floods the context window.
+        for prev_run in conversation_history[-5:]:
+            messages.append({"role": "user", "content": prev_run["user_message"]})
+            messages.append({"role": "assistant", "content": prev_run["assistant_response"]})
+
+        messages.append({"role": "user", "content": user_message})
+
+        stream = self.client.stream(messages=messages)
+        full_text = ""
+        in_think = False
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            text: str = chunk.choices[0].delta.content or ""
+            if not text:
+                continue
+            # Filter <think>…</think> blocks emitted by reasoning-capable models
+            while text:
+                if in_think:
+                    end = text.find("</think>")
+                    if end == -1:
+                        text = ""  # still inside think block — skip whole chunk
+                    else:
+                        in_think = False
+                        text = text[end + len("</think>"):]
+                else:
+                    start = text.find("<think>")
+                    if start == -1:
+                        full_text += text
+                        yield text
+                        text = ""
+                    else:
+                        before = text[:start]
+                        if before:
+                            full_text += before
+                            yield before
+                        in_think = True
+                        text = text[start + len("<think>"):]
+
+        result["answer"] = full_text
+        result["should_generate_video"] = self._wants_video(user_message, full_text)
+        result["video_topic"] = user_message[:200]
+        result["retrieved_passages"] = passages
 
     def chat_with_streaming(
         self,
