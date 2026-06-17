@@ -59,6 +59,7 @@ for key, default in [
     ("pending_message", ""),
     ("pending_assets", {}),
     ("video_topic", ""),
+    ("pending_video_offer", False),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -80,7 +81,7 @@ with st.sidebar:
             for conv in conversations:
                 conv_title = conv.get("title") or "Untitled"
                 conv_date = conv["created_at"][:10] if conv["created_at"] else ""
-                if st.button(f"📍 {conv_title}\n_{conv_date}_", use_container_width=True):
+                if st.button(f"📍 {conv_title}\n_{conv_date}_", use_container_width=True, key=f"btn_conv_{conv['conversation_id']}"):
                     st.session_state.conversation_id = conv["conversation_id"]
                     # Load messages from conversation history
                     history = st.session_state.run_db.get_conversation_history(conv["conversation_id"])
@@ -298,9 +299,7 @@ if user_input and st.session_state.phase == "idle":
 
             if should_generate:
                 st.session_state.video_topic = video_topic
-                if st.button("🎬 Generate Video", type="primary", key="btn_generate_video_request"):
-                    st.session_state.phase = "video_request"
-                    st.rerun()
+                st.session_state.pending_video_offer = True
 
     except (AuthenticationError, APIError) as exc:
         st.error(f"**Chat error:** {exc}")
@@ -311,11 +310,27 @@ if user_input and st.session_state.phase == "idle":
         st.session_state.phase = "idle"
         st.stop()
 
+# ── Generate Video offer button (top-level so it survives reruns) ───────────
+# The button is offered after the assistant suggests a video.  It lives outside
+# the `if user_input` block so the click is processed on the next rerun.
+
+if st.session_state.get("pending_video_offer") and st.session_state.phase == "idle":
+    if st.button("🎬 Generate Video", type="primary", key="btn_generate_video_offer"):
+        st.session_state.pending_video_offer = False
+        st.session_state.pending_message = st.session_state.get("video_topic", "")
+        # Do NOT force-reuse cached data — always fetch fresh results for the offer topic.
+        # This ensures we get images relevant to the assistant's specific suggestion,
+        # not stale cached data from a previous query or retriever call.
+        st.session_state.phase = "video_request"
+        st.rerun()
+
 # ── PHASE: video_request — fetch data for video generation ──────────────────
 
 if st.session_state.phase == "video_request":
     user_message = st.session_state.pending_message
     video_topic = st.session_state.video_topic
+    # Always respect the sidebar toggle for cache reuse; don't force-reuse from offer button.
+    _fetch_resume = resume_mode
 
     with st.chat_message("assistant"):
         status_area = st.status("Fetching NASA data for video…", expanded=True)
@@ -323,7 +338,7 @@ if st.session_state.phase == "video_request":
         try:
             orchestrator = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
             with status_area:
-                for update in orchestrator.fetch_data(video_topic, resume=resume_mode):
+                for update in orchestrator.fetch_data(video_topic, resume=_fetch_resume):
                     assets = update.get("assets", assets)
                     stage  = update["stage"]
                     status = update["status"]
