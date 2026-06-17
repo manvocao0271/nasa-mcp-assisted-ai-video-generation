@@ -109,6 +109,64 @@ class Retriever:
 
         return unique
 
+    def _extract_passages(self, assets: dict, top_k: int = 5) -> List[Dict]:
+        """Extract passages from an already-fetched assets dict (no network call).
+
+        Used by ChatAgent to ground answers from a DataAgent.fetch() result
+        without triggering a fresh Orchestrator run or writing to disk.
+        """
+        passages: List[Dict] = []
+
+        for img in assets.get("images", []):
+            caption = (img.get("caption") or "").strip()
+            if caption:
+                passages.append({
+                    "snippet": caption,
+                    "source": img.get("source", "image"),
+                    "doc_id": img.get("url", ""),
+                    "type": "image",
+                })
+
+        for tool, result in assets.get("data", {}).items():
+            try:
+                if isinstance(result, dict):
+                    snippet = (
+                        result.get("title")
+                        or result.get("explanation")
+                        or json.dumps(result)[:400]
+                    )
+                elif isinstance(result, list):
+                    first = result[0] if result else {}
+                    snippet = (
+                        (first.get("title") or first.get("explanation") or json.dumps(first)[:400])
+                        if isinstance(first, dict) else str(first)[:300]
+                    )
+                else:
+                    snippet = str(result)[:300]
+            except Exception:
+                snippet = ""
+
+            if snippet:
+                passages.append({
+                    "snippet": snippet.strip(),
+                    "source": tool,
+                    "doc_id": f"tool:{tool}",
+                    "type": "data",
+                })
+
+        seen: set = set()
+        unique: List[Dict] = []
+        for p in passages:
+            key = p.get("doc_id") or p.get("snippet")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(p)
+            if len(unique) >= top_k:
+                break
+
+        return unique
+
     def format_for_prompt(self, passages: List[Dict]) -> str:
         """Return a short human-readable block suitable for injection into prompts."""
         if not passages:

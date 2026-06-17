@@ -13,18 +13,45 @@ from agent.qwen_client import QwenClient
 from agent.retriever import Retriever
 
 
-SYSTEM_PROMPT = """You are an expert astronomy guide and universe educator.
+SYSTEM_PROMPT = """You are an expert astronomy guide and universe educator backed by live NASA data.
 
-When cached NASA data is provided below, you may reference it. You do not call
-live NASA APIs during chat — video generation (when requested) fetches fresh data.
+When NASA data is provided below in a "Retrieved NASA data" block, treat it as ground truth
+and cite specific facts, titles, dates, or descriptions from it in your answer.
 
 When answering:
 1. Explain concepts clearly and concisely
-2. Use any provided NASA excerpts as grounding when relevant
+2. Use any provided NASA data as grounding — prefer it over your training knowledge for current events
 3. If a visual would help, you may offer: "Would you like me to generate a short video showing this?"
 
-Do not claim you are fetching live NASA data during chat.
+Do not make up APOD titles, dates, or image descriptions — only state what is in the provided data.
 """
+
+# Keywords that indicate the user wants live NASA data
+_LIVE_DATA_PATTERNS = (
+    r"\bapod\b",
+    r"\bastronomy picture of the day\b",
+    r"\bpicture of the day\b",
+    r"\btoday'?s? (image|picture|photo|astronomy)\b",
+    r"\byesterday'?s? (image|picture|photo|astronomy)\b",
+    r"\blatest (image|picture|photo|news|discovery)\b",
+    r"\brecent (solar flare|cme|asteroid|comet|discovery)\b",
+    r"\bnear.?earth asteroid\b",
+    r"\bsolar flare\b",
+    r"\bcoronal mass ejection\b",
+    r"\bcme\b",
+    r"\bgeomagnetic storm\b",
+    r"\bepic (image|earth|photo)\b",
+    r"\bearth (today|yesterday|right now|from space)\b",
+    r"\bwhat does .+ look like (today|right now|currently)\b",
+    r"\bshow me .+nasa\b",
+)
+
+
+def _needs_live_data(text: str) -> bool:
+    """Return True if the query is best answered with a live NASA MCP fetch."""
+    t = text.lower()
+    return any(re.search(p, t) for p in _LIVE_DATA_PATTERNS)
+
 
 # User must explicitly ask for video — not broad phrases like "show me" alone.
 _USER_VIDEO_PATTERNS = (
@@ -75,19 +102,19 @@ class ChatAgent:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         passages = []
-        # Only use retriever in chat if we're explicitly in a video-generation context.
-        # Retrieving from stale cached assets during regular chat can inject irrelevant
-        # passages (e.g., old black hole imagery when asking about the Milky Way).
-        # try:
-        #     if os.path.exists("output/assets.json"):
-        #         retriever = Retriever()
-        #         passages = retriever.retrieve(user_message, top_k=5, resume=True)
-        #         if passages:
-        #             retrieved_text = retriever.format_for_prompt(passages)
-        #             if retrieved_text:
-        #                 messages.append({"role": "system", "content": retrieved_text})
-        # except Exception:
-        #     passages = []
+        if _needs_live_data(user_message):
+            try:
+                from agent.data_agent import DataAgent
+                nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")
+                qwen_key = os.environ.get("QWEN_API_KEY", "")
+                assets = DataAgent(nasa_key, qwen_key).fetch(user_message)
+                retriever = Retriever()
+                passages = retriever._extract_passages(assets, top_k=6)
+                if passages:
+                    grounding = retriever.format_for_prompt(passages)
+                    messages.append({"role": "system", "content": grounding})
+            except Exception:
+                passages = []
 
         # Use simple user/assistant pairs — the messages field stores the full
         # accumulated history per run, so appending all runs' messages lists
@@ -195,21 +222,22 @@ class ChatAgent:
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-        # Only use retriever in chat if we're explicitly in a video-generation context.
-        # Retrieving from stale cached assets during regular chat can inject irrelevant
-        # passages (e.g., old black hole imagery when asking about the Milky Way).
+        # For live-data queries (APOD, solar flares, NEO, etc.) fetch from NASA MCP
+        # without writing to disk, then inject as grounding context.
         passages: list = []
-        # Retriever disabled for now; re-enable only if explicitly requested or in video flow
-        # try:
-        #     if os.path.exists("output/assets.json"):
-        #         retriever = Retriever()
-        #         passages = retriever.retrieve(user_message, top_k=5, resume=True)
-        #         if passages:
-        #             retrieved_text = retriever.format_for_prompt(passages)
-        #             if retrieved_text:
-        #                 messages.append({"role": "system", "content": retrieved_text})
-        # except Exception:
-        #     passages = []
+        if _needs_live_data(user_message):
+            try:
+                from agent.data_agent import DataAgent
+                nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")
+                qwen_key = os.environ.get("QWEN_API_KEY", "")
+                assets = DataAgent(nasa_key, qwen_key).fetch(user_message)
+                retriever = Retriever()
+                passages = retriever._extract_passages(assets, top_k=6)
+                if passages:
+                    grounding = retriever.format_for_prompt(passages)
+                    messages.append({"role": "system", "content": grounding})
+            except Exception:
+                passages = []
 
         # Use simple user/assistant pairs — the messages field stores the full
         # accumulated history per run, so appending all runs' messages lists
