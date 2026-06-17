@@ -75,16 +75,19 @@ class ChatAgent:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         passages = []
-        try:
-            if os.path.exists("output/assets.json"):
-                retriever = Retriever()
-                passages = retriever.retrieve(user_message, top_k=5, resume=True)
-                if passages:
-                    retrieved_text = retriever.format_for_prompt(passages)
-                    if retrieved_text:
-                        messages.append({"role": "system", "content": retrieved_text})
-        except Exception:
-            passages = []
+        # Only use retriever in chat if we're explicitly in a video-generation context.
+        # Retrieving from stale cached assets during regular chat can inject irrelevant
+        # passages (e.g., old black hole imagery when asking about the Milky Way).
+        # try:
+        #     if os.path.exists("output/assets.json"):
+        #         retriever = Retriever()
+        #         passages = retriever.retrieve(user_message, top_k=5, resume=True)
+        #         if passages:
+        #             retrieved_text = retriever.format_for_prompt(passages)
+        #             if retrieved_text:
+        #                 messages.append({"role": "system", "content": retrieved_text})
+        # except Exception:
+        #     passages = []
 
         # Use simple user/assistant pairs — the messages field stores the full
         # accumulated history per run, so appending all runs' messages lists
@@ -107,6 +110,29 @@ class ChatAgent:
             "video_topic": video_topic,
             "retrieved_passages": passages,
         }
+
+    @staticmethod
+    def _extract_video_offer(answer: str) -> str | None:
+        """Extract the assistant's video offer to use as search topic.
+
+        Looks for patterns like:
+          - "visual journey through the Milky Way"
+          - "barred spiral galaxy"
+        And returns the first found, otherwise None.
+        """
+        answer_lower = (answer or "").lower()
+        phrases = [
+            "visual journey through the milky way",
+            "barred spiral galaxy",
+            "journey through space",
+            "solar system",
+            "exoplanet",
+            "asteroid",
+        ]
+        for phrase in phrases:
+            if phrase in answer_lower:
+                return phrase[:120]  # Return the phrase itself, not the full answer
+        return None
 
     @staticmethod
     def _is_affirmative(text: str) -> bool:
@@ -169,17 +195,21 @@ class ChatAgent:
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+        # Only use retriever in chat if we're explicitly in a video-generation context.
+        # Retrieving from stale cached assets during regular chat can inject irrelevant
+        # passages (e.g., old black hole imagery when asking about the Milky Way).
         passages: list = []
-        try:
-            if os.path.exists("output/assets.json"):
-                retriever = Retriever()
-                passages = retriever.retrieve(user_message, top_k=5, resume=True)
-                if passages:
-                    retrieved_text = retriever.format_for_prompt(passages)
-                    if retrieved_text:
-                        messages.append({"role": "system", "content": retrieved_text})
-        except Exception:
-            passages = []
+        # Retriever disabled for now; re-enable only if explicitly requested or in video flow
+        # try:
+        #     if os.path.exists("output/assets.json"):
+        #         retriever = Retriever()
+        #         passages = retriever.retrieve(user_message, top_k=5, resume=True)
+        #         if passages:
+        #             retrieved_text = retriever.format_for_prompt(passages)
+        #             if retrieved_text:
+        #                 messages.append({"role": "system", "content": retrieved_text})
+        # except Exception:
+        #     passages = []
 
         # Use simple user/assistant pairs — the messages field stores the full
         # accumulated history per run, so appending all runs' messages lists
@@ -225,7 +255,9 @@ class ChatAgent:
 
         result["answer"] = full_text
         result["should_generate_video"] = self._wants_video(user_message, full_text)
-        result["video_topic"] = user_message[:200]
+        # For video topic, prefer the assistant's offer if present, else use user query.
+        video_topic = self._extract_video_offer(full_text) or user_message[:200]
+        result["video_topic"] = video_topic
         result["retrieved_passages"] = passages
 
     def chat_with_streaming(

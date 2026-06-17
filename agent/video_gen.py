@@ -30,7 +30,7 @@ MODEL_I2V = "wan2.7-i2v-2026-04-25"
 MAX_POLL_SECONDS = 600
 MAX_SCENES = 3
 CLIP_DURATION = 10  # seconds — fixed for all clips
-VIDEO_RESOLUTION = "1080P"
+VIDEO_RESOLUTION = "720P"
 
 
 def _generate_ambient_wav(duration_seconds: int, out_path: Path) -> None:
@@ -157,7 +157,6 @@ class VideoGen:
         use_ref = (
             ref_image_url
             and self._url_is_usable_image(ref_image_url)
-            and self._ref_matches_prompt(ref_image_url, prompt)
         )
         # Append strict motion & lighting directives to avoid zooms and brightness shifts
         final_prompt = f"{prompt}\n\n{self._build_motion_directives(duration_seconds)}"
@@ -175,8 +174,14 @@ class VideoGen:
         params = {
             "resolution": VIDEO_RESOLUTION,
             "prompt_extend": True,
-            "duration": CLIP_DURATION,  # fixed 10 s for both T2V and I2V
         }
+
+        # Only set an explicit duration param for I2V models — some text->video
+        # or older models do not accept a duration customization and will fail
+        # the request. The prompt already contains a Duration directive, so
+        # leaving the param out is a safe fallback when unsupported.
+        if model == MODEL_I2V:
+            params["duration"] = max(2, min(duration_seconds, 15))
 
         body = {
             "model": model,
