@@ -114,6 +114,9 @@ class Orchestrator:
                        "detail": f"Generating clip {i + 1}/{total}…"}
             clip = video_gen.generate_one(entry)
             clips.append(clip)
+            for w in video_gen.warnings:
+                yield {"stage": "warning", "status": "warning", "detail": w}
+            video_gen.warnings.clear()
 
         detail = f"{len(clips)} clip(s) generated" if clips else "No clips generated"
         yield {"stage": "video", "status": "done", "detail": detail}

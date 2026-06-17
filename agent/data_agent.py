@@ -96,6 +96,14 @@ class DataAgent:
         (OUTPUT_DIR / "assets.json").write_text(json.dumps(assets, indent=2))
         return assets
 
+    def fetch(self, user_message: str) -> dict:
+        """Fetch NASA data without writing to disk.
+
+        Safe to call from ChatAgent during conversation without clobbering
+        the pipeline's assets.json.
+        """
+        return asyncio.run(self._fetch_assets(user_message))
+
     async def _fetch_assets(self, user_message: str) -> dict:
         """Async: spin up the MCP server and run the tool-calling loop."""
 

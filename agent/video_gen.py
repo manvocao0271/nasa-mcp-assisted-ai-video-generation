@@ -27,7 +27,8 @@ _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
 MODEL_T2V = "wan2.1-t2v-turbo"
-MODEL_I2V = "wan2.7-i2v-2026-04-25"
+MODEL_I2V = "wan2.8-i2v-flash"          # primary I2V model
+MODEL_I2V_FALLBACK = "wan2.7-i2v-2026-04-25"  # secondary I2V model
 MAX_POLL_SECONDS = 600
 MAX_SCENES = 3
 CLIP_DURATION = 10  # seconds — fixed for all clips
@@ -107,6 +108,7 @@ class VideoGen:
     def __init__(self, qwen_api_key: str, poll_interval: float = 10.0) -> None:
         self.qwen_api_key = qwen_api_key
         self.poll_interval = poll_interval
+        self.warnings: list[str] = []  # populated when I2V falls back to T2V
         self._headers = {
             "Authorization": f"Bearer {qwen_api_key}",
             "Content-Type": "application/json",
@@ -181,55 +183,66 @@ class VideoGen:
         return None
 
     def _submit_job(self, prompt: str, duration_seconds: int, ref_image_url: str = "") -> str:
-        # Pass the reference URL directly — Wan's backend can reach NASA image library URLs.
-        # We no longer base64-encode because the I2V API only accepts https:// URLs, not data URIs.
         media_url = ref_image_url.strip() if ref_image_url else ""
-
-        # Append strict motion & lighting directives to avoid zooms and brightness shifts
         final_prompt = f"{prompt}\n\n{self._build_motion_directives(duration_seconds)}"
 
-        if media_url:
-            model = MODEL_I2V
-            inp: dict = {
-                "prompt": final_prompt,
-                "img": media_url,
+        def _i2v_body(model: str) -> dict:
+            return {
+                "model": model,
+                "input": {"prompt": final_prompt, "img": media_url},
+                "parameters": {
+                    "resolution": VIDEO_RESOLUTION,
+                    "prompt_extend": True,
+                    "duration": max(2, min(duration_seconds, 15)),
+                },
             }
-        else:
-            model = MODEL_T2V
-            inp = {"prompt": final_prompt}
 
-        params: dict = {
-            "resolution": VIDEO_RESOLUTION,
-            "prompt_extend": True,
-        }
-        # duration is only supported by I2V; T2V (turbo) rejects it
-        if model == MODEL_I2V:
-            params["duration"] = max(2, min(duration_seconds, 15))
+        def _t2v_body() -> dict:
+            return {
+                "model": MODEL_T2V,
+                "input": {"prompt": final_prompt},
+                # T2V turbo does NOT support duration — omit the param
+                "parameters": {
+                    "resolution": VIDEO_RESOLUTION,
+                    "prompt_extend": True,
+                },
+            }
 
-        body = {
-            "model": model,
-            "input": inp,
-            "parameters": params,
-        }
+        def _is_quota_error(resp: httpx.Response) -> bool:
+            return resp.status_code == 403 and (
+                "AllocationQuota" in resp.text or "FreeTier" in resp.text
+            )
+
         with httpx.Client(timeout=30) as client:
-            resp = client.post(_SUBMIT_URL, json=body, headers=self._headers)
-            # If I2V quota is exhausted, retry as T2V (graceful degradation)
-            if not resp.is_success and model == MODEL_I2V and resp.status_code == 403:
-                err_text = resp.text
-                if "AllocationQuota" in err_text or "FreeTier" in err_text:
-                    body["model"] = MODEL_T2V
-                    body["input"] = {"prompt": final_prompt}
-                    body["parameters"].pop("duration", None)
-                    resp = client.post(_SUBMIT_URL, json=body, headers=self._headers)
-            if not resp.is_success:
-                raise RuntimeError(
-                    f"Video submit failed {resp.status_code}: {resp.text}"
-                )
-            data = resp.json()
+            if media_url:
+                # Try primary I2V model, then secondary, then fall back to T2V
+                for i2v_model in (MODEL_I2V, MODEL_I2V_FALLBACK):
+                    resp = client.post(_SUBMIT_URL, json=_i2v_body(i2v_model), headers=self._headers)
+                    if resp.is_success:
+                        break
+                    err = f"{resp.status_code}: {resp.text[:200]}"
+                    if not _is_quota_error(resp) and resp.status_code != 404:
+                        # Hard error (bad format, auth, etc.) — surface immediately
+                        raise RuntimeError(f"I2V submit failed ({i2v_model}) {err}")
+                    # quota / not-found — try next model
+                    self.warnings.append(f"I2V model {i2v_model} unavailable ({err}), trying next…")
+                else:
+                    # Both I2V models failed — fall back to T2V with a visible warning
+                    self.warnings.append(
+                        "⚠️ Both I2V models failed (quota/availability). "
+                        "Generating without reference frame using T2V (5 s). "
+                        "Check DashScope billing or try again later."
+                    )
+                    resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
+            else:
+                resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
 
-        task_id = data.get("output", {}).get("task_id")
+        if not resp.is_success:
+            raise RuntimeError(f"Video submit failed {resp.status_code}: {resp.text}")
+
+        task_id = resp.json().get("output", {}).get("task_id")
         if not task_id:
-            raise RuntimeError(f"No task_id in submit response: {data}")
+            raise RuntimeError(f"No task_id in submit response: {resp.json()}")
         return task_id
 
     def _build_motion_directives(self, duration_seconds: int) -> str:

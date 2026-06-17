@@ -159,6 +159,9 @@ def _render_pipeline_stages(generator, status_area) -> dict:
             if stage == "done":
                 manifest = update.get("manifest", {})
                 status_area.update(label="Pipeline complete!", state="complete")
+            elif stage == "warning":
+                ph = st.empty()
+                ph.warning(detail)
             elif status == "running":
                 ph = st.empty()
                 step_placeholders[stage] = ph
