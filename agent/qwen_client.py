@@ -122,6 +122,18 @@ class QwenClient:
                 pass
         return response
 
+    def stream(self, messages: list[dict]) -> Any:
+        """Open a streaming chat completion and return the raw stream iterator.
+
+        Yields openai ``ChatCompletionChunk`` objects.  Callers should read
+        ``chunk.choices[0].delta.content`` for text tokens.
+        """
+        return self._client.chat.completions.create(  # type: ignore[call-overload]
+            model=self.model,
+            messages=messages,  # type: ignore[arg-type]
+            stream=True,
+        )
+
     def chat_json(self, messages: list[dict]) -> dict:
         """Call Qwen and parse the response content as JSON.
 
