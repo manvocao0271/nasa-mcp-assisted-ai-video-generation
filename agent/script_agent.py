@@ -28,6 +28,7 @@ def _build_system_prompt(n: int) -> str:
     return f"""You are a science documentary writer. You will see real NASA images and data.
 Write exactly {n} scene(s) for a silent short video — no voiceover, no dialogue.
 Each scene needs a short visual caption (~2 sentences) describing what the viewer sees, tied to the user's request.
+If an astronomer's description is provided, use its specific visual details (colours, textures, scale) to enrich the captions.
 Return ONLY valid JSON — no markdown fences:
 {{
   "title": "<short title>",
@@ -71,7 +72,7 @@ class ScriptAgent:
         except Exception:
             return None
 
-    def run(self, assets: dict, user_message: str) -> dict:
+    def run(self, assets: dict, user_message: str, chat_description: str = "") -> dict:
         images = assets.get("images", [])[:MAX_SCENES]
         n = scene_count(assets)
         selected_urls = [img["url"] for img in images if img.get("url")]
@@ -106,6 +107,10 @@ class ScriptAgent:
             else:
                 data_summary[key] = val
 
+        description_block = (
+            f"\nAstronomer's description of the subject:\n{chat_description.strip()}\n"
+            if chat_description.strip() else ""
+        )
         image_note = (
             f"There are {n} image(s). Write scene i about Image i."
             if selected_urls
@@ -114,7 +119,8 @@ class ScriptAgent:
         content.append({
             "type": "text",
             "text": (
-                f"User request: {user_message}\n\n"
+                f"User request: {user_message}\n"
+                f"{description_block}\n"
                 f"NASA data:\n{json.dumps(data_summary, indent=2)}\n\n"
                 f"{image_note}\n"
                 f"Write exactly {n} scene(s) as JSON now."

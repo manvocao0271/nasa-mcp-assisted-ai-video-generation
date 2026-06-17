@@ -5,6 +5,7 @@ For each storyboard entry, submits an async job, polls until completion, and sav
 
 from __future__ import annotations
 
+import base64
 import math
 import random
 import shutil
@@ -153,33 +154,55 @@ class VideoGen:
             counter += 1
         return candidate
 
+    @staticmethod
+    def _fetch_as_data_uri(url: str) -> str | None:
+        """Download *url* and return a base64 data URI for inline image submission.
+
+        For NASA image library URLs (``~large.jpg``) we first try a smaller
+        ``~medium.jpg`` variant to stay within API payload limits.
+        """
+        _SUPPORTED = ("image/jpeg", "image/png", "image/webp")
+        candidates = [url]
+        if "~large." in url:
+            candidates.insert(0, url.replace("~large.", "~medium."))
+        for candidate in candidates:
+            try:
+                with httpx.Client(timeout=30, follow_redirects=True) as client:
+                    r = client.get(candidate)
+                if r.status_code >= 400:
+                    continue
+                ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+                if ct not in _SUPPORTED:
+                    ct = "image/jpeg"
+                b64 = base64.b64encode(r.content).decode()
+                return f"data:{ct};base64,{b64}"
+            except Exception:
+                continue
+        return None
+
     def _submit_job(self, prompt: str, duration_seconds: int, ref_image_url: str = "") -> str:
-        use_ref = (
-            ref_image_url
-            and self._url_is_usable_image(ref_image_url)
-        )
+        # Pass the reference URL directly — Wan's backend can reach NASA image library URLs.
+        # We no longer base64-encode because the I2V API only accepts https:// URLs, not data URIs.
+        media_url = ref_image_url.strip() if ref_image_url else ""
+
         # Append strict motion & lighting directives to avoid zooms and brightness shifts
         final_prompt = f"{prompt}\n\n{self._build_motion_directives(duration_seconds)}"
 
-        if use_ref:
+        if media_url:
             model = MODEL_I2V
             inp: dict = {
                 "prompt": final_prompt,
-                "media": [{"type": "first_frame", "url": ref_image_url}],
+                "img": media_url,
             }
         else:
             model = MODEL_T2V
             inp = {"prompt": final_prompt}
 
-        params = {
+        params: dict = {
             "resolution": VIDEO_RESOLUTION,
             "prompt_extend": True,
         }
-
-        # Only set an explicit duration param for I2V models — some text->video
-        # or older models do not accept a duration customization and will fail
-        # the request. The prompt already contains a Duration directive, so
-        # leaving the param out is a safe fallback when unsupported.
+        # duration is only supported by I2V; T2V (turbo) rejects it
         if model == MODEL_I2V:
             params["duration"] = max(2, min(duration_seconds, 15))
 
@@ -190,6 +213,14 @@ class VideoGen:
         }
         with httpx.Client(timeout=30) as client:
             resp = client.post(_SUBMIT_URL, json=body, headers=self._headers)
+            # If I2V quota is exhausted, retry as T2V (graceful degradation)
+            if not resp.is_success and model == MODEL_I2V and resp.status_code == 403:
+                err_text = resp.text
+                if "AllocationQuota" in err_text or "FreeTier" in err_text:
+                    body["model"] = MODEL_T2V
+                    body["input"] = {"prompt": final_prompt}
+                    body["parameters"].pop("duration", None)
+                    resp = client.post(_SUBMIT_URL, json=body, headers=self._headers)
             if not resp.is_success:
                 raise RuntimeError(
                     f"Video submit failed {resp.status_code}: {resp.text}"
@@ -217,7 +248,7 @@ class VideoGen:
             "VIDEO_DIRECTIVES: Motion style — ultra slow motion, extreme temporal deceleration, "
             "every movement glacially slow and hypnotic. "
             "Camera behavior — orbit/rotate around the subject at a fixed distance; "
-            "do NOT zoom in or out (no scale change). Keep the entire subject fully in frame for the entire clip. "
+            "do NOT zoom in or out (no scale change). Keep the entire subject(s) fully in frame for the entire clip. "
             "Motion: smooth, ultra-slow continuous rotation/orbit; no sudden jerks or accelerations. "
             "Lighting: maintain constant exposure and brightness for all light sources; do NOT increase bloom, "
             "lens flares, or brightness of stars/galaxies during the duration. "
@@ -249,9 +280,6 @@ class VideoGen:
     @staticmethod
     def _url_is_usable_image(url: str) -> bool:
         _SUPPORTED = ("image/jpeg", "image/png", "image/gif", "image/webp")
-        _WAN_BLOCKED_DOMAINS = ("images-assets.nasa.gov",)
-        if any(blocked in url for blocked in _WAN_BLOCKED_DOMAINS):
-            return False
         try:
             with httpx.Client(timeout=8) as client:
                 r = client.head(url, follow_redirects=True)

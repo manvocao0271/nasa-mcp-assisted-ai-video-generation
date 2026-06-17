@@ -56,9 +56,13 @@ class StoryboardAgent:
         except Exception:
             return None
 
-    def run(self, script: dict, assets: dict, user_message: str) -> list[dict]:
+    def run(self, script: dict, assets: dict, user_message: str, chat_description: str = "") -> list[dict]:
         client = QwenClient(self.qwen_api_key, model=MODEL_VL_PLUS)
         storyboard: list[dict] = []
+        description_line = (
+            f"Astronomer's description: {chat_description.strip()}\n"
+            if chat_description.strip() else ""
+        )
 
         for scene in script.get("scenes", []):
             scene_num = scene["scene"]
@@ -78,6 +82,7 @@ class StoryboardAgent:
                 "type": "text",
                 "text": (
                     f"User request: {user_message}\n"
+                    f"{description_line}"
                     f"Scene {scene_num} mood: {mood}\n"
                     f"Scene caption: {caption}\n\n"
                     "Write the visual prompt JSON now."

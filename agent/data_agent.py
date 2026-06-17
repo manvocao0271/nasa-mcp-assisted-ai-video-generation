@@ -212,6 +212,7 @@ class DataAgent:
                         images.append(
                             {
                                 "url": result[key],
+                                "thumb_url": result.get("thumb_url", ""),
                                 "caption": (
                                     result.get("title")
                                     or str(result.get("explanation", ""))[:120]
@@ -230,6 +231,7 @@ class DataAgent:
                                 images.append(
                                     {
                                         "url": item[key],
+                                        "thumb_url": item.get("thumb_url", ""),
                                         "caption": (
                                             item.get("title")
                                             or str(item.get("explanation", ""))[:120]
