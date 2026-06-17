@@ -60,6 +60,7 @@ for key, default in [
     ("pending_assets", {}),
     ("video_topic", ""),
     ("pending_video_offer", False),
+    ("chat_description", ""),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -117,14 +118,21 @@ def _fetch_thumb(url: str) -> bytes | str:
     """Return image bytes for domains that block browser access, else the original URL.
 
     NASA Image Library assets (images-assets.nasa.gov) return 403/timeout when loaded directly by the browser. We fetch them server-side and hand Streamlit raw bytes instead, which always works.
+    We also swap ~large.jpg / ~orig.jpg for ~thumb.jpg to keep previews fast.
     """
 
     _PROXY_DOMAINS = ("images-assets.nasa.gov",)
     if not any(d in url for d in _PROXY_DOMAINS):
         return url  # fast path — most URLs are fine
+    # Use the small thumbnail variant for display speed
+    thumb_url = url.replace("~large.", "~thumb.").replace("~orig.", "~thumb.").replace("~medium.", "~thumb.")
     try:
-        with httpx.Client(timeout=10, follow_redirects=True) as client:
-            r = client.get(url)
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            r = client.get(thumb_url)
+        if r.status_code < 400:
+            return r.content
+        # thumb variant failed — try the original URL
+        r = client.get(url)
         if r.status_code < 400:
             return r.content
     except Exception:
@@ -229,6 +237,13 @@ if st.sidebar.button("🎬 Generate video from last message", use_container_widt
     if not last_user:
         st.sidebar.warning("No user message found.")
     else:
+        # Also grab the last assistant reply to use as visual description context
+        last_assistant = ""
+        for m in reversed(st.session_state.get("messages", [])):
+            if m.get("role") == "assistant":
+                last_assistant = m.get("content") or ""
+                break
+        st.session_state.chat_description = last_assistant
         st.session_state.pending_message = last_user
         st.session_state.video_topic = last_user
         st.session_state.phase = "video_request"
@@ -295,6 +310,7 @@ if user_input and st.session_state.phase == "idle":
                             st.markdown(f"**{source}** — {doc}")
 
             st.session_state.messages.append({"role": "assistant", "content": answer})
+            st.session_state.chat_description = answer
             _save_chat_turn(user_input, answer)
 
             if should_generate:
@@ -445,10 +461,11 @@ if st.session_state.phase == "image_selection":
 # ── PHASE: pipeline — run the rest of the pipeline ──────────────────────────
 
 if st.session_state.phase == "pipeline":
-    user_message  = st.session_state.pending_message
-    assets        = st.session_state.pending_assets
-    resume        = st.session_state.get("use_cached_pipeline", resume_mode)
-    orchestrator  = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
+    user_message      = st.session_state.pending_message
+    assets            = st.session_state.pending_assets
+    resume            = st.session_state.get("use_cached_pipeline", resume_mode)
+    chat_description  = st.session_state.get("chat_description", "")
+    orchestrator      = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
 
     with st.chat_message("assistant"):
         status_area = st.status("Running pipeline…", expanded=True)
@@ -457,7 +474,7 @@ if st.session_state.phase == "pipeline":
 
         try:
             manifest = _render_pipeline_stages(
-                orchestrator.run_pipeline(user_message, assets, resume=resume),
+                orchestrator.run_pipeline(user_message, assets, resume=resume, chat_description=chat_description),
                 status_area,
             )
         except (AuthenticationError, APIError) as exc:

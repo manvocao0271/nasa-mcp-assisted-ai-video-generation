@@ -61,7 +61,7 @@ class Orchestrator:
                    "detail": f"{len(assets.get('images', []))} images fetched",
                    "assets": assets}
 
-    def run_pipeline(self, user_message: str, assets: dict, resume: bool = False) -> Generator[dict, None, None]:
+    def run_pipeline(self, user_message: str, assets: dict, resume: bool = False, chat_description: str = "") -> Generator[dict, None, None]:
         n = scene_count(assets)
         urls = _selected_urls(assets)
 
@@ -78,7 +78,7 @@ class Orchestrator:
                    "detail": f"Loaded from cache ({len(script.get('scenes', []))} scenes)"}
         else:
             yield {"stage": "script", "status": "running", "detail": f"Writing {n} scene caption(s)…"}
-            script = ScriptAgent(self.qwen_api_key).run(assets, user_message)
+            script = ScriptAgent(self.qwen_api_key).run(assets, user_message, chat_description=chat_description)
             yield {"stage": "script", "status": "done",
                    "detail": f"{len(script['scenes'])} scene(s) written"}
 
@@ -95,7 +95,7 @@ class Orchestrator:
                    "detail": f"Loaded from cache ({len(storyboard)} prompts)"}
         else:
             yield {"stage": "storyboard", "status": "running", "detail": "Generating storyboard…"}
-            storyboard = StoryboardAgent(self.qwen_api_key).run(script, assets, user_message)
+            storyboard = StoryboardAgent(self.qwen_api_key).run(script, assets, user_message, chat_description=chat_description)
             yield {"stage": "storyboard", "status": "done",
                    "detail": f"{len(storyboard)} scene prompt(s)"}
 
