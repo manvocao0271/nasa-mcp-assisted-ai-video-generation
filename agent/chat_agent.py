@@ -60,6 +60,26 @@ def _needs_live_data(text: str) -> bool:
     return any(re.search(p, t) for p in _LIVE_DATA_PATTERNS)
 
 
+_IMAGE_URL_RE = re.compile(
+    r"https?://\S+\.(?:jpg|jpeg|png|gif|webp)(?:\?\S*)?",
+    re.IGNORECASE,
+)
+
+
+def _extract_image_urls(text: str) -> list[str]:
+    """Return any direct image URLs found in the user's message."""
+    return _IMAGE_URL_RE.findall(text)
+
+
+def _assets_from_urls(urls: list[str], query: str) -> dict:
+    """Build a minimal assets dict from user-supplied image URLs."""
+    images = [
+        {"url": url, "thumb_url": "", "caption": "", "source": "user_provided"}
+        for url in urls
+    ]
+    return {"query": query, "tools_called": [], "images": images, "data": {}}
+
+
 # User must explicitly ask for video — not broad phrases like "show me" alone.
 _USER_VIDEO_PATTERNS = (
     r"\bgenerate\s+(a\s+)?video\b",
@@ -110,7 +130,10 @@ class ChatAgent:
 
         passages = []
         chat_assets: dict = {}
-        if _needs_live_data(user_message):
+        user_image_urls = _extract_image_urls(user_message)
+        if user_image_urls:
+            chat_assets = _assets_from_urls(user_image_urls, user_message)
+        elif _needs_live_data(user_message):
             try:
                 from agent.data_agent import DataAgent
                 nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")
@@ -236,7 +259,13 @@ class ChatAgent:
         # without writing to disk, then inject as grounding context.
         passages: list = []
         chat_assets: dict = {}
-        if _needs_live_data(user_message):
+
+        # Priority 1: user pasted direct image URL(s) — use them as-is, skip MCP fetch
+        user_image_urls = _extract_image_urls(user_message)
+        if user_image_urls:
+            chat_assets = _assets_from_urls(user_image_urls, user_message)
+        elif _needs_live_data(user_message):
+            # Priority 2: live NASA data query — fetch via MCP
             try:
                 from agent.data_agent import DataAgent
                 nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")

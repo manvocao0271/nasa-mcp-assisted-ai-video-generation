@@ -29,6 +29,16 @@ _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 MODEL_T2V = "wan2.1-t2v-turbo"
 # MODEL_I2V = "wan2.7-i2v-2026-04-25"
 MODEL_I2V = "happyhorse-1.0-i2v"
+
+# Per-model I2V input format:
+#   wan2.7-i2v-*     → input.img = "<url>"
+#   happyhorse-*-i2v → input.media = [{"type": "image", "url": "<url>"}]
+# Per-model I2V parameter support:
+#   wan2.7-i2v-*     → supports duration, resolution, prompt_extend
+#   happyhorse-*-i2v → supports duration only
+_WAN_I2V_MODELS = ("wan2.7-i2v", "wan2.8-i2v")
+_HAPPYHORSE_I2V_MODELS = ("happyhorse",)
+
 MAX_POLL_SECONDS = 600
 MAX_SCENES = 3
 CLIP_DURATION = 10  # seconds — fixed for all clips
@@ -183,19 +193,43 @@ class VideoGen:
         return None
 
     def _submit_job(self, prompt: str, duration_seconds: int, ref_image_url: str = "") -> str:
-        media_url = ref_image_url.strip() if ref_image_url else ""
+        raw_url = ref_image_url.strip() if ref_image_url else ""
+        # Resolve the reference image to a data URI so the model backend never
+        # has to fetch from hosts that block external servers (e.g. images-assets.nasa.gov).
+        # Fall back to the raw URL if the download fails (e.g. non-NASA public URLs).
+        if raw_url:
+            media_url = self._fetch_as_data_uri(raw_url) or raw_url
+        else:
+            media_url = ""
         final_prompt = f"{prompt}\n\n{self._build_motion_directives(duration_seconds)}"
 
         def _i2v_body(model: str) -> dict:
-            return {
-                "model": model,
-                "input": {"prompt": final_prompt, "img": media_url},
-                "parameters": {
+            model_lower = model.lower()
+            is_wan = any(m in model_lower for m in _WAN_I2V_MODELS)
+            is_happyhorse = any(m in model_lower for m in _HAPPYHORSE_I2V_MODELS)
+
+            if is_wan:
+                inp = {"prompt": final_prompt, "img": media_url}
+                params: dict = {
                     "resolution": VIDEO_RESOLUTION,
                     "prompt_extend": True,
                     "duration": max(2, min(duration_seconds, 15)),
-                },
-            }
+                }
+            elif is_happyhorse:
+                inp = {
+                    "prompt": final_prompt,
+                    "media": [{"type": "first_frame", "url": media_url}],
+                }
+                params = {"duration": max(2, min(duration_seconds, 15))}
+            else:
+                # Unknown I2V model — try media array format as a safe default
+                inp = {
+                    "prompt": final_prompt,
+                    "media": [{"type": "first_frame", "url": media_url}],
+                }
+                params = {"duration": max(2, min(duration_seconds, 15))}
+
+            return {"model": model, "input": inp, "parameters": params}
 
         def _t2v_body() -> dict:
             return {
