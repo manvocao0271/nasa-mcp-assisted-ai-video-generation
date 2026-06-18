@@ -27,8 +27,8 @@ _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
 MODEL_T2V = "wan2.1-t2v-turbo"
-MODEL_I2V = "wan2.8-i2v-flash"          # primary I2V model
-MODEL_I2V_FALLBACK = "wan2.7-i2v-2026-04-25"  # secondary I2V model
+# MODEL_I2V = "wan2.7-i2v-2026-04-25"
+MODEL_I2V = "happyhorse-1.0-i2v"
 MAX_POLL_SECONDS = 600
 MAX_SCENES = 3
 CLIP_DURATION = 10  # seconds — fixed for all clips
@@ -215,24 +215,16 @@ class VideoGen:
 
         with httpx.Client(timeout=30) as client:
             if media_url:
-                # Try primary I2V model, then secondary, then fall back to T2V
-                for i2v_model in (MODEL_I2V, MODEL_I2V_FALLBACK):
-                    resp = client.post(_SUBMIT_URL, json=_i2v_body(i2v_model), headers=self._headers)
-                    if resp.is_success:
-                        break
+                resp = client.post(_SUBMIT_URL, json=_i2v_body(MODEL_I2V), headers=self._headers)
+                if not resp.is_success:
                     err = f"{resp.status_code}: {resp.text[:200]}"
-                    if not _is_quota_error(resp) and resp.status_code != 404:
-                        # Hard error (bad format, auth, etc.) — surface immediately
-                        raise RuntimeError(f"I2V submit failed ({i2v_model}) {err}")
-                    # quota / not-found — try next model
-                    self.warnings.append(f"I2V model {i2v_model} unavailable ({err}), trying next…")
-                else:
-                    # Both I2V models failed — fall back to T2V with a visible warning
-                    self.warnings.append(
-                        "⚠️ Both I2V models failed (quota/availability). "
-                        "Generating without reference frame using T2V (5 s). "
-                        "Check DashScope billing or try again later."
-                    )
+                    if _is_quota_error(resp):
+                        self.warnings.append(
+                            "⚠️ I2V quota exhausted. Generating without reference frame using T2V (5 s). "
+                            "Check DashScope billing or try again later."
+                        )
+                    else:
+                        raise RuntimeError(f"I2V submit failed ({MODEL_I2V}) {err}")
                     resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
             else:
                 resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)

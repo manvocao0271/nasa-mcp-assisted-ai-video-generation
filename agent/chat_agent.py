@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import date
 
 from agent.qwen_client import QwenClient
 from agent.retriever import Retriever
 
 
-SYSTEM_PROMPT = """You are an expert astronomy guide and universe educator backed by live NASA data.
+def _build_system_prompt() -> str:
+    today = date.today().strftime("%B %d, %Y")
+    return f"""You are an expert astronomy guide and universe educator backed by live NASA data.
+Today's date is {today}.
 
 When NASA data is provided below in a "Retrieved NASA data" block, treat it as ground truth
 and cite specific facts, titles, dates, or descriptions from it in your answer.
@@ -25,6 +29,9 @@ When answering:
 
 Do not make up APOD titles, dates, or image descriptions — only state what is in the provided data.
 """
+
+
+SYSTEM_PROMPT = _build_system_prompt()
 
 # Keywords that indicate the user wants live NASA data
 _LIVE_DATA_PATTERNS = (
@@ -99,22 +106,24 @@ class ChatAgent:
         if conversation_history is None:
             conversation_history = []
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": _build_system_prompt()}]
 
         passages = []
+        chat_assets: dict = {}
         if _needs_live_data(user_message):
             try:
                 from agent.data_agent import DataAgent
                 nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")
                 qwen_key = os.environ.get("QWEN_API_KEY", "")
-                assets = DataAgent(nasa_key, qwen_key).fetch(user_message)
+                chat_assets = DataAgent(nasa_key, qwen_key).fetch(user_message)
                 retriever = Retriever()
-                passages = retriever._extract_passages(assets, top_k=6)
+                passages = retriever._extract_passages(chat_assets, top_k=6)
                 if passages:
                     grounding = retriever.format_for_prompt(passages)
                     messages.append({"role": "system", "content": grounding})
             except Exception:
                 passages = []
+                chat_assets = {}
 
         # Use simple user/assistant pairs — the messages field stores the full
         # accumulated history per run, so appending all runs' messages lists
@@ -136,6 +145,7 @@ class ChatAgent:
             "should_generate_video": should_generate,
             "video_topic": video_topic,
             "retrieved_passages": passages,
+            "chat_assets": chat_assets,
         }
 
     @staticmethod
@@ -220,24 +230,26 @@ class ChatAgent:
                 yield msg
                 return
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": _build_system_prompt()}]
 
         # For live-data queries (APOD, solar flares, NEO, etc.) fetch from NASA MCP
         # without writing to disk, then inject as grounding context.
         passages: list = []
+        chat_assets: dict = {}
         if _needs_live_data(user_message):
             try:
                 from agent.data_agent import DataAgent
                 nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")
                 qwen_key = os.environ.get("QWEN_API_KEY", "")
-                assets = DataAgent(nasa_key, qwen_key).fetch(user_message)
+                chat_assets = DataAgent(nasa_key, qwen_key).fetch(user_message)
                 retriever = Retriever()
-                passages = retriever._extract_passages(assets, top_k=6)
+                passages = retriever._extract_passages(chat_assets, top_k=6)
                 if passages:
                     grounding = retriever.format_for_prompt(passages)
                     messages.append({"role": "system", "content": grounding})
             except Exception:
                 passages = []
+                chat_assets = {}
 
         # Use simple user/assistant pairs — the messages field stores the full
         # accumulated history per run, so appending all runs' messages lists
@@ -287,6 +299,8 @@ class ChatAgent:
         video_topic = self._extract_video_offer(full_text) or user_message[:200]
         result["video_topic"] = video_topic
         result["retrieved_passages"] = passages
+        result["chat_assets"] = chat_assets
+        result["chat_assets"] = chat_assets
 
     def chat_with_streaming(
         self,
