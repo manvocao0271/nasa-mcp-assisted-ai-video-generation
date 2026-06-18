@@ -26,19 +26,21 @@ _API_BASE = "https://dashscope-intl.aliyuncs.com/api/v1"
 _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
-MODEL_T2V = "wan2.1-t2v-turbo"
-# MODEL_I2V = "wan2.7-i2v-2026-04-25"
-MODEL_I2V = "happyhorse-1.0-i2v"
+MODEL_T2V = "wan2.7-t2v-2026-04-25"  # supports duration; swap to wan2.1-t2v-turbo for faster 5s clips
+MODEL_I2V = "wan2.7-i2v-2026-04-25"  # async, input.img, supports duration/resolution/prompt_extend
+# MODEL_I2V = "happyhorse-1.0-i2v"   # sync, input.media[first_frame], duration only
+# MODEL_I2V = "happyhorse-1.5-i2v"   # sync, input.media[first_frame], duration only
 
 # Per-model I2V input format:
 #   wan2.7-i2v-*     → input.img = "<url>"
-#   happyhorse-*-i2v → input.media = [{"type": "image", "url": "<url>"}]
+#   happyhorse-*-i2v → input.media = [{"type": "first_frame", "url": "<url>"}]
 # Per-model I2V parameter support:
 #   wan2.7-i2v-*     → supports duration, resolution, prompt_extend
 #   happyhorse-*-i2v → supports duration only
-_WAN_I2V_MODELS = ("wan2.7-i2v", "wan2.8-i2v")
+_WAN_I2V_MODELS = ("wan2.7-i2v", "wan2.8-i2v", "wan2.1-i2v")
 _HAPPYHORSE_I2V_MODELS = ("happyhorse",)
-
+# T2V models that support the duration parameter (wan2.7+ non-turbo)
+_T2V_SUPPORTS_DURATION = ("wan2.7-t2v", "wan2.8-t2v")
 MAX_POLL_SECONDS = 600
 MAX_SCENES = 3
 CLIP_DURATION = 10  # seconds — fixed for all clips
@@ -232,14 +234,18 @@ class VideoGen:
             return {"model": model, "input": inp, "parameters": params}
 
         def _t2v_body() -> dict:
+            t2v_lower = MODEL_T2V.lower()
+            supports_duration = any(m in t2v_lower for m in _T2V_SUPPORTS_DURATION)
+            params: dict = {
+                "resolution": VIDEO_RESOLUTION,
+                "prompt_extend": True,
+            }
+            if supports_duration:
+                params["duration"] = max(2, min(duration_seconds, 10))
             return {
                 "model": MODEL_T2V,
                 "input": {"prompt": final_prompt},
-                # T2V turbo does NOT support duration — omit the param
-                "parameters": {
-                    "resolution": VIDEO_RESOLUTION,
-                    "prompt_extend": True,
-                },
+                "parameters": params,
             }
 
         def _is_quota_error(resp: httpx.Response) -> bool:
