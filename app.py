@@ -61,6 +61,7 @@ for key, default in [
     ("video_topic", ""),
     ("pending_video_offer", False),
     ("chat_description", ""),
+    ("chat_assets", {}),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -314,6 +315,7 @@ if user_input and st.session_state.phase == "idle":
 
             st.session_state.messages.append({"role": "assistant", "content": answer})
             st.session_state.chat_description = answer
+            st.session_state.chat_assets = result.get("chat_assets", {})
             _save_chat_turn(user_input, answer)
 
             if should_generate:
@@ -337,10 +339,13 @@ if st.session_state.get("pending_video_offer") and st.session_state.phase == "id
     if st.button("🎬 Generate Video", type="primary", key="btn_generate_video_offer"):
         st.session_state.pending_video_offer = False
         st.session_state.pending_message = st.session_state.get("video_topic", "")
-        # Do NOT force-reuse cached data — always fetch fresh results for the offer topic.
-        # This ensures we get images relevant to the assistant's specific suggestion,
-        # not stale cached data from a previous query or retriever call.
-        st.session_state.phase = "video_request"
+        chat_assets = st.session_state.get("chat_assets", {})
+        if chat_assets.get("images"):
+            # Reuse the assets already fetched during the chat turn — skip re-fetch
+            st.session_state.pending_assets = chat_assets
+            st.session_state.phase = "image_selection"
+        else:
+            st.session_state.phase = "video_request"
         st.rerun()
 
 # ── PHASE: video_request — fetch data for video generation ──────────────────

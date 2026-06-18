@@ -177,4 +177,4 @@ class Retriever:
             source = p.get("source") or ""
             doc = p.get("doc_id") or ""
             lines.append(f"[{i+1}] {source}: {snippet} {('(' + doc + ')') if doc else ''}")
-        return "Retrieved NASA passages:\n" + "\n".join(lines)
+        return "Retrieved NASA data:\n" + "\n".join(lines)
