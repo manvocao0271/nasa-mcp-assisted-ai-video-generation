@@ -1,16 +1,11 @@
 """Orchestrator — drives the full pipeline and enforces the token budget.
 
-Receives the user's natural language request from app.py, runs each agent
-in sequence, streams status updates back via a generator, and writes
-output/episode_manifest.json when the run completes.
-
 Flow:
-    user message
-        → data_agent   → output/assets.json
-        → script_agent → output/script.md
-        → storyboard_agent → output/storyboard.json
-        → video_gen    → output/clips/scene_N.mp4
-        → episode_manifest.json
+    user message → data_agent → assets.json
+    user picks images → script_agent → script.json
+    → storyboard_agent → storyboard.json
+    → video_gen → clips/scene_N.mp4 (one per selected image)
+    → episode_manifest.json
 """
 
 from __future__ import annotations
@@ -20,11 +15,23 @@ from pathlib import Path
 from typing import Generator
 
 from agent.data_agent import DataAgent
-from agent.script_agent import ScriptAgent
+from agent.script_agent import ScriptAgent, scene_count
 from agent.storyboard_agent import StoryboardAgent
 from agent.video_gen import VideoGen
 
 OUTPUT_DIR = Path("output")
+
+
+def _selected_urls(assets: dict) -> list[str]:
+    return [img["url"] for img in assets.get("images", []) if img.get("url")]
+
+
+def _script_cache_valid(script: dict, assets: dict) -> bool:
+    urls = _selected_urls(assets)
+    return (
+        script.get("selected_image_urls") == urls
+        and len(script.get("scenes", [])) == scene_count(assets)
+    )
 
 
 class Orchestrator:
@@ -40,12 +47,6 @@ class Orchestrator:
         (OUTPUT_DIR / "clips").mkdir(exist_ok=True)
 
     def fetch_data(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
-        """Run only the data stage. Yields status dicts.
-
-        The final yield has stage="data", status="done", and an "assets" key
-        containing the full assets dict so the caller can present images to
-        the user before proceeding.
-        """
         assets_path = OUTPUT_DIR / "assets.json"
         if resume and assets_path.exists():
             assets = json.loads(assets_path.read_text())
@@ -60,55 +61,79 @@ class Orchestrator:
                    "detail": f"{len(assets.get('images', []))} images fetched",
                    "assets": assets}
 
-    def run_pipeline(self, user_message: str, assets: dict, resume: bool = False) -> Generator[dict, None, None]:
-        """Run script → storyboard → video from pre-fetched assets.
+    def run_pipeline(self, user_message: str, assets: dict, resume: bool = False, chat_description: str = "") -> Generator[dict, None, None]:
+        n = scene_count(assets)
+        urls = _selected_urls(assets)
 
-        ``assets["images"]`` should already be filtered to the user's selected
-        images before calling this method.
-
-        Yields status dicts.  The final yield has stage="done".
-        """
         # ── Script ────────────────────────────────────────────────────────────
         script_path = OUTPUT_DIR / "script.json"
-        if resume and script_path.exists():
+        use_script_cache = resume and script_path.exists()
+        if use_script_cache:
             script = json.loads(script_path.read_text())
+            use_script_cache = _script_cache_valid(script, assets)
+
+        if use_script_cache:
             yield {"stage": "script", "status": "running", "detail": "Loading cached script…"}
-            yield {"stage": "script", "status": "done", "detail": f"Loaded from cache ({len(script.get('scenes', []))} scenes)"}
+            yield {"stage": "script", "status": "done",
+                   "detail": f"Loaded from cache ({len(script.get('scenes', []))} scenes)"}
         else:
-            yield {"stage": "script", "status": "running", "detail": "Writing narration script…"}
-            script = ScriptAgent(self.qwen_api_key).run(assets, user_message)
-            yield {"stage": "script", "status": "done", "detail": f"{len(script['scenes'])} scenes written"}
+            yield {"stage": "script", "status": "running", "detail": f"Writing {n} scene caption(s)…"}
+            script = ScriptAgent(self.qwen_api_key).run(assets, user_message, chat_description=chat_description)
+            yield {"stage": "script", "status": "done",
+                   "detail": f"{len(script['scenes'])} scene(s) written"}
 
         # ── Storyboard ────────────────────────────────────────────────────────
         storyboard_path = OUTPUT_DIR / "storyboard.json"
-        if resume and storyboard_path.exists():
+        use_board_cache = resume and storyboard_path.exists()
+        if use_board_cache:
             storyboard = json.loads(storyboard_path.read_text())
+            use_board_cache = len(storyboard) == len(script.get("scenes", []))
+
+        if use_board_cache:
             yield {"stage": "storyboard", "status": "running", "detail": "Loading cached storyboard…"}
-            yield {"stage": "storyboard", "status": "done", "detail": f"Loaded from cache ({len(storyboard)} prompts)"}
+            yield {"stage": "storyboard", "status": "done",
+                   "detail": f"Loaded from cache ({len(storyboard)} prompts)"}
         else:
             yield {"stage": "storyboard", "status": "running", "detail": "Generating storyboard…"}
-            storyboard = StoryboardAgent(self.qwen_api_key).run(script, assets)
-            yield {"stage": "storyboard", "status": "done", "detail": f"{len(storyboard)} scene prompts"}
+            storyboard = StoryboardAgent(self.qwen_api_key).run(script, assets, user_message, chat_description=chat_description)
+            yield {"stage": "storyboard", "status": "done",
+                   "detail": f"{len(storyboard)} scene prompt(s)"}
 
         # ── Video ─────────────────────────────────────────────────────────────
-        yield {"stage": "video", "status": "running", "detail": "Generating video clip (Wan 2.7)…"}
-        clips = VideoGen(self.qwen_api_key).run(storyboard)
-        clip_path = clips[0] if clips else None
-        yield {"stage": "video", "status": "done", "detail": str(clip_path) if clip_path else "No clip generated"}
+        total = len(storyboard)
+
+        yield {"stage": "video", "status": "running",
+               "detail": f"Generating clip 1/{total}…" if total else "No scenes to render"}
+
+        video_gen = VideoGen(self.qwen_api_key)
+        clips: list[Path] = []
+
+        for i, entry in enumerate(storyboard):
+            if i > 0:
+                yield {"stage": "video", "status": "running",
+                       "detail": f"Generating clip {i + 1}/{total}…"}
+            clip = video_gen.generate_one(entry)
+            clips.append(clip)
+            for w in video_gen.warnings:
+                yield {"stage": "warning", "status": "warning", "detail": w}
+            video_gen.warnings.clear()
+
+        detail = f"{len(clips)} clip(s) generated" if clips else "No clips generated"
+        yield {"stage": "video", "status": "done", "detail": detail}
 
         manifest = {
             "user_message": user_message,
+            "scene_count": n,
+            "selected_image_urls": urls,
             "tokens_used": self.tokens_used,
             "assets": assets,
-            "script_scenes": len(script["scenes"]),
             "clips": [str(c) for c in clips],
         }
         (OUTPUT_DIR / "episode_manifest.json").write_text(json.dumps(manifest, indent=2))
 
-        yield {"stage": "done", "status": "done", "detail": str(clip_path) if clip_path else "", "manifest": manifest}
+        yield {"stage": "done", "status": "done", "detail": detail, "manifest": manifest}
 
     def run(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
-        """Convenience wrapper: fetch_data → run_pipeline in one call."""
         assets: dict = {}
         for update in self.fetch_data(user_message, resume=resume):
             assets = update.get("assets", assets)

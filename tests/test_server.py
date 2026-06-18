@@ -8,6 +8,9 @@ pytestmark = pytest.mark.asyncio
 EXPECTED_TOOLS = {
     "get_apod_tool",
     "search_apod_tool",
+    "get_cme_events_tool",
+    "get_flr_events_tool",
+    "get_gst_events_tool",
     "get_epic_images_tool",
     "get_epic_available_dates_tool",
     "get_neo_feed_tool",
@@ -61,6 +64,9 @@ async def test_every_tool_has_an_input_schema(mcp_with_tools: FastMCP) -> None:
     [
         ("get_apod_tool", "title"),
         ("search_apod_tool", "explanation"),
+        ("get_cme_events_tool", "cmeAnalyses"),
+        ("get_flr_events_tool", "class"),
+        ("get_gst_events_tool", "Kp"),
         ("get_epic_images_tool", "jpg_url"),
         ("get_epic_available_dates_tool", "YYYY-MM-DD"),
         ("get_neo_feed_tool", "close_approach_data"),

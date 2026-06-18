@@ -5,6 +5,7 @@ from mcp.server.fastmcp import FastMCP
 from nasa_mcp.cache import Cache
 from nasa_mcp.config import load
 from nasa_mcp.features.apod.tools import register_apod_tools
+from nasa_mcp.features.donki import register_donki_tools
 from nasa_mcp.features.earth.tools import register_earth_tools
 from nasa_mcp.features.exoplanets.tools import register_exoplanet_tools
 from nasa_mcp.features.image_library.tools import register_image_library_tools
@@ -19,6 +20,7 @@ def register_tools() -> None:
     """Register all MCP feature modules."""
 
     register_apod_tools(mcp, config, cache)
+    register_donki_tools(mcp, config, cache)
     register_earth_tools(mcp, config, cache)
     register_exoplanet_tools(mcp, config, cache)
     register_image_library_tools(mcp, config, cache)

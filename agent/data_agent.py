@@ -1,8 +1,6 @@
 """Data Agent — translates the user request into NASA data assets via MCP tools.
 
-Spins up the nasa-mcp MCP server as a stdio subprocess, hands the user message
-to Qwen (qwen-max) in tool-calling mode, executes the resulting MCP tool calls,
-and returns a structured assets dict saved to output/assets.json.
+Spins up the nasa-mcp MCP server as a stdio subprocess, hands the user message to Qwen (qwen3.7-plus) in tool-calling mode, executes the resulting MCP tool calls, and returns a structured assets dict saved to output/assets.json.
 
 Output schema (output/assets.json):
     {
@@ -30,7 +28,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import TextContent
 from openai.types.chat import ChatCompletionMessageToolCall
 
-from agent.qwen_client import MODEL_MAX, QwenClient
+from agent.qwen_client import MODEL_PLUS, QwenClient
 
 # On Windows the ProactorEventLoop raises ConnectionResetError when the MCP
 # stdio pipe closes during shutdown.  Suppress it by patching the transport
@@ -98,8 +96,17 @@ class DataAgent:
         (OUTPUT_DIR / "assets.json").write_text(json.dumps(assets, indent=2))
         return assets
 
+    def fetch(self, user_message: str) -> dict:
+        """Fetch NASA data without writing to disk.
+
+        Safe to call from ChatAgent during conversation without clobbering
+        the pipeline's assets.json.
+        """
+        return asyncio.run(self._fetch_assets(user_message))
+
     async def _fetch_assets(self, user_message: str) -> dict:
         """Async: spin up the MCP server and run the tool-calling loop."""
+
         server_params = StdioServerParameters(
             command="uv",
             args=["run", "nasa-mcp"],
@@ -128,7 +135,7 @@ class DataAgent:
                     for tool in mcp_tools_result.tools
                 ]
 
-                client = QwenClient(self.qwen_api_key, model=MODEL_MAX)
+                client = QwenClient(self.qwen_api_key, model=MODEL_PLUS)
                 messages: list[dict] = [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
@@ -138,7 +145,15 @@ class DataAgent:
                 all_results: list[dict] = []
 
                 for _ in range(MAX_TOOL_ITERATIONS):
-                    response = client.chat(messages, tools=openai_tools)
+                    try:
+                        response = client.chat(messages, tools=openai_tools)
+                    except Exception as e:
+                        # If the LLM call fails, append a helpful assistant message
+                        # and stop the tool-calling loop instead of crashing.
+                        err_text = f"Error calling LLM for tool-calling: {e}"
+                        messages.append({"role": "assistant", "content": err_text})
+                        break
+
                     msg = response.choices[0].message
 
                     # Append assistant turn (tool_calls or final text)
@@ -155,18 +170,24 @@ class DataAgent:
                         tools_called.append(tool_name)
 
                         # Call the MCP tool — FastMCP expects args wrapped under "args"
-                        mcp_result = await session.call_tool(
-                            tool_name, {"args": tool_args}
-                        )
-                        result_text = next(
-                            (item.text for item in mcp_result.content if isinstance(item, TextContent)),
-                            "{}",
-                        )
-
                         try:
-                            parsed = json.loads(result_text)
-                        except json.JSONDecodeError:
-                            parsed = {"raw": result_text}
+                            mcp_result = await session.call_tool(
+                                tool_name, {"args": tool_args}
+                            )
+                            result_text = next(
+                                (item.text for item in mcp_result.content if isinstance(item, TextContent)),
+                                "{}",
+                            )
+                            try:
+                                parsed = json.loads(result_text)
+                            except json.JSONDecodeError:
+                                parsed = {"raw": result_text}
+                        except Exception as e:
+                            # Record the error as the tool's raw result so downstream
+                            # agents can still proceed with partial data.
+                            err_msg = str(e)
+                            result_text = json.dumps({"raw_error": err_msg})
+                            parsed = {"raw": err_msg}
 
                         all_results.append({"tool": tool_name, "result": parsed})
 
@@ -199,6 +220,7 @@ class DataAgent:
                         images.append(
                             {
                                 "url": result[key],
+                                "thumb_url": result.get("thumb_url", ""),
                                 "caption": (
                                     result.get("title")
                                     or str(result.get("explanation", ""))[:120]
@@ -217,6 +239,7 @@ class DataAgent:
                                 images.append(
                                     {
                                         "url": item[key],
+                                        "thumb_url": item.get("thumb_url", ""),
                                         "caption": (
                                             item.get("title")
                                             or str(item.get("explanation", ""))[:120]
