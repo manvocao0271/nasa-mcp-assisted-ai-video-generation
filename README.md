@@ -1,4 +1,3 @@
-
 # Pale Blue Dot — AI Universe Video Generator
 
 > A multi-agent system that turns real NASA data into cinematic short films about the universe. Powered by Qwen models on Qwen Cloud, grounded by NASA's public APIs via MCP.
@@ -21,6 +20,8 @@ The Streamlit UI feeds your message to an Orchestrator agent (Qwen on Qwen Cloud
 4. **Inspect the sources** — NASA data used (images, orbital data, weather, exoplanet parameters) shown alongside
 
 Every frame is anchored to something real. No hallucinated planets, no invented missions — just terrain, weather, orbital context, and event data assembled into a scene.
+
+https://github.com/user-attachments/assets/8ddc512d-5eef-4a82-88b8-6d7643481831
 
 ## System architecture
 
