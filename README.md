@@ -22,6 +22,12 @@ The Streamlit UI feeds your message to an Orchestrator agent (Qwen on Qwen Cloud
 
 Every frame is anchored to something real. No hallucinated planets, no invented missions — just terrain, weather, orbital context, and event data assembled into a scene.
 
+
+https://github.com/user-attachments/assets/39d00d64-587d-4d8a-af4d-fba9cfce504c
+
+
+Music by Kyle Dixon & Michael Stein
+
 ## System architecture
 
 ```
