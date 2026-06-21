@@ -37,8 +37,9 @@ MODEL_I2V = "wan2.7-i2v-2026-04-25"  # async, input.img, supports duration/resol
 # Per-model I2V parameter support:
 #   wan2.7-i2v-*     → supports duration, resolution, prompt_extend
 #   happyhorse-*-i2v → supports duration only
-_WAN_I2V_MODELS = ("wan2.7-i2v", "wan2.8-i2v", "wan2.1-i2v")
-_HAPPYHORSE_I2V_MODELS = ("happyhorse",)
+_WAN_I2V_MODELS = ("wan2.1-i2v",)  # older schema: input.img
+_WAN27_I2V_MODELS = ("wan2.7-i2v", "wan2.8-i2v")  # newer schema: input.media + resolution/prompt_extend
+_HAPPYHORSE_I2V_MODELS = ("happyhorse",)  # input.media, duration only
 # T2V models that support the duration parameter (wan2.7+ non-turbo)
 _T2V_SUPPORTS_DURATION = ("wan2.7-t2v", "wan2.8-t2v")
 MAX_POLL_SECONDS = 600
@@ -50,8 +51,7 @@ VIDEO_RESOLUTION = "720P"
 def _generate_ambient_wav(duration_seconds: int, out_path: Path) -> None:
     """Write a space-ambient stereo WAV to *out_path* using stdlib only.
 
-    The result is a layered low-frequency drone (40–160 Hz) with slow LFO
-    pulsing (~0.05 Hz) and a subtle noise floor — no external dependencies.
+    The result is a layered low-frequency drone (40–160 Hz) with slow LFO pulsing (~0.05 Hz) and a subtle noise floor — no external dependencies.
     """
     sample_rate = 44100
     n_samples = duration_seconds * sample_rate
@@ -200,19 +200,32 @@ class VideoGen:
         # has to fetch from hosts that block external servers (e.g. images-assets.nasa.gov).
         # Fall back to the raw URL if the download fails (e.g. non-NASA public URLs).
         if raw_url:
-            media_url = self._fetch_as_data_uri(raw_url) or raw_url
+            media_url = self._fetch_as_data_uri(raw_url) or ""
         else:
             media_url = ""
         final_prompt = f"{prompt}\n\n{self._build_motion_directives(duration_seconds)}"
 
         def _i2v_body(model: str) -> dict:
             model_lower = model.lower()
-            is_wan = any(m in model_lower for m in _WAN_I2V_MODELS)
+            is_wan_old = any(m in model_lower for m in _WAN_I2V_MODELS)
+            is_wan27 = any(m in model_lower for m in _WAN27_I2V_MODELS)
             is_happyhorse = any(m in model_lower for m in _HAPPYHORSE_I2V_MODELS)
 
-            if is_wan:
+            if is_wan_old:
+                # Older wan2.1-i2v uses flat input.img field
                 inp = {"prompt": final_prompt, "img": media_url}
                 params: dict = {
+                    "resolution": VIDEO_RESOLUTION,
+                    "prompt_extend": True,
+                    "duration": max(2, min(duration_seconds, 15)),
+                }
+            elif is_wan27:
+                # wan2.7-i2v / wan2.8-i2v require input.media array
+                inp = {
+                    "prompt": final_prompt,
+                    "media": [{"type": "first_frame", "url": media_url}],
+                }
+                params = {
                     "resolution": VIDEO_RESOLUTION,
                     "prompt_extend": True,
                     "duration": max(2, min(duration_seconds, 15)),
@@ -253,18 +266,22 @@ class VideoGen:
                 "AllocationQuota" in resp.text or "FreeTier" in resp.text
             )
 
-        with httpx.Client(timeout=30) as client:
+        # Large base64 payloads need an extended write timeout (default 30s is too short).
+        _submit_timeout = httpx.Timeout(connect=15, read=60, write=300, pool=15)
+        with httpx.Client(timeout=_submit_timeout) as client:
             if media_url:
                 resp = client.post(_SUBMIT_URL, json=_i2v_body(MODEL_I2V), headers=self._headers)
                 if not resp.is_success:
                     err = f"{resp.status_code}: {resp.text[:200]}"
                     if _is_quota_error(resp):
                         self.warnings.append(
-                            "⚠️ I2V quota exhausted. Generating without reference frame using T2V (5 s). "
+                            "⚠️ I2V quota exhausted. Generating without reference frame using T2V. "
                             "Check DashScope billing or try again later."
                         )
                     else:
-                        raise RuntimeError(f"I2V submit failed ({MODEL_I2V}) {err}")
+                        self.warnings.append(
+                            f"⚠️ I2V submission failed ({err}). Falling back to T2V."
+                        )
                     resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
             else:
                 resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
@@ -278,10 +295,10 @@ class VideoGen:
         return task_id
 
     def _build_motion_directives(self, duration_seconds: int) -> str:
-        """Return a short block of directives forcing ultra-slow-motion orbit and constant lighting.
+        """Return a short block of directives forcing slow-motion orbit and constant lighting.
 
         These directives are purposely explicit to guide the video model:
-        - Ultra slow motion, extreme temporal deceleration — every movement is glacially slow
+        - Slow motion, extreme temporal deceleration — every movement is glacially slow
         - Orbit/rotate the camera around the subject at a fixed distance (no zoom/scale change)
         - Keep the entire subject fully in frame for the whole clip
         - Use smooth, continuous rotation; avoid sudden jerks
@@ -290,11 +307,11 @@ class VideoGen:
         - Keep styling photorealistic with minimal dynamic color grading
         """
         return (
-            "VIDEO_DIRECTIVES: Motion style — ultra slow motion, extreme temporal deceleration, "
+            "VIDEO_DIRECTIVES: Motion style — slow motion, extreme temporal deceleration, "
             "every movement glacially slow and hypnotic. "
             "Camera behavior — orbit/rotate around the subject at a fixed distance; "
             "do NOT zoom in or out (no scale change). Keep the entire subject(s) fully in frame for the entire clip. "
-            "Motion: smooth, ultra-slow continuous rotation/orbit; no sudden jerks or accelerations. "
+            "Motion: smooth, slow continuous rotation/orbit; no sudden jerks or accelerations, subtle motion-blur. "
             "Lighting: maintain constant exposure and brightness for all light sources; do NOT increase bloom, "
             "lens flares, or brightness of stars/galaxies during the duration. "
             "Style: photorealistic, cinematic, minimal color grading. "
