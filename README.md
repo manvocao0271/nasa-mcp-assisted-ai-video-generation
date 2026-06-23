@@ -180,11 +180,8 @@ uv run pytest -m live                  # live NASA API round-trips (needs NASA_A
 ```
 app.py                  # Streamlit UI: chat, image picker, pipeline status, inline video
 agent/                  # Multi-agent pipeline
-  orchestrator.py       # Token-budget-aware pipeline driver; stale-cache guard
-  chat_agent.py         # Multi-turn chatbot with conversation context + video suggestions
-  run_db.py             # SQLite conversation storage (runs, messages, artifacts)
+  orchestrator.py       # Token-budget-aware pipeline driver
   data_agent.py         # Calls nasa-mcp tools → output/assets.json
-  retriever.py          # Phase-1 RAG: extracts passages from assets for LLM grounding
   script_agent.py       # Scene captions (1 per selected image) → output/script.json
   storyboard_agent.py   # Visual prompts + NASA ref frames → output/storyboard.json
   video_gen.py          # Wan 2.7 API client (Qwen Cloud) → output/clips/
@@ -203,32 +200,85 @@ nasa_mcp/               # NASA MCP server (data backbone)
   server.py             # MCP server entry point
 output/                 # Generated artifacts (gitignored)
   assets.json           # NASA data fetched for the request
-  script.json           # Scene captions (structured JSON)
+  script.json           # Scene captions (structured JSON, silent video)
   storyboard.json       # Per-scene visual prompts
   clips/                # Generated scene mp4(s)
   episode_manifest.json # Run summary: data sources, token spend, clip paths
-  runs.db               # Conversation + run history (SQLite)
 tests/                  # Integration tests
 ```
 
-## Retrieval-Augmented Generation (RAG)
+## Retrieval-Augmented Generation (RAG) & Embeddings Roadmap
 
-Phase 1 is **implemented**: `agent/retriever.py` extracts image captions and tool snippets from `assets` and injects them as a grounding block in the `ChatAgent` system prompt for queries that need live NASA data. This reduces hallucinations and enables inline source citations in the UI.
+Purpose: Ground chat responses in real NASA data and reduce LLM hallucinations by retrieving and citing relevant artifacts (assets.json, script.json, storyboard.json, and NASA tool outputs). Implement in phases: a quick RAG prototype (no external deps), followed by embeddings + vector store for robust, low-latency retrieval.
 
-### Phase 2 — Embeddings + Vector Store (planned)
-- Add `agent/embeddings.py` (Qwen embeddings or `sentence-transformers`) and `agent/vector_store.py` (Chroma/FAISS).
-- Create `scripts/index_artifacts.py` to index `output/*.json` artifacts into a vector store.
-- Query flow: embed user query → nearest-neighbour search → top-K passages cited in prompt.
+Phase 1 — Simple RAG (quick)
+- Implement a lightweight `Retriever` that reuses `DataAgent` to fetch and summarize NASA tool outputs for a user query.
+- Integrate the retriever into `agent/chat_agent.py`: call the retriever before the LLM call, include the top-K summarized passages as a system/context message with citations, then call the LLM. This immediately improves factuality with no new runtime dependencies.
+- Add a script to generate short summaries of `output/assets.json` (title, short snippet, source).
 
-### Phase 3 — UI & infra (planned)
-- Display retrieved source snippets inline with assistant replies.
-- Background indexer to keep the vector store in sync with new `output/` runs.
-- Add `tests/test_retriever.py` and `tests/test_embeddings.py`.
+Phase 2 — Embeddings + Vector Store (recommended)
+- Choose a vector store:
+  - Chroma — easy local on-disk index, low ops overhead
+  - FAISS — high-performance CPU index for larger corpora
+  - Milvus/Weaviate — production-grade managed stores
+- Add `agent/embeddings.py` (wraps Qwen embeddings API or `sentence-transformers`) and `agent/vector_store.py` (wraps Chroma/FAISS).
+- Create an indexing script `scripts/index_artifacts.py` that:
+  1. Reads `output/*.json` (assets, scripts, storyboards) and `nasa_mcp` documentation artifacts,
+  2. Extracts passages and metadata,
+  3. Computes embeddings,
+  4. Persists them into the vector store.
+- Query flow: embed the user's query → nearest-neighbor search → retrieve top-K passages with metadata → include passages (summaries + citations) in LLM prompt.
+
+Phase 3 — UI & infra
+- Update `app.py` to display retrieved source snippets inline with assistant replies and add a "Cite sources" or "Visualize these sources" action.
+- Add background indexing (worker or cron job) to keep the vector store in sync with `output/` runs.
+- Add unit/integration tests: `tests/test_retriever.py`, `tests/test_embeddings.py`.
+
+Dependencies (examples)
 
 ```bash
-# Phase 2 dependencies
+# Minimal (Phase 1)
+pip install -r requirements.txt
+
+# Phase 2 (embeddings + vector store)
 pip install chromadb sentence-transformers
+# or for FAISS:
+pip install faiss-cpu sentence-transformers
 ```
+
+Minimal retrieval pseudo-code:
+
+```py
+from agent.retriever import Retriever
+from agent.qwen_client import QwenClient
+
+retriever = Retriever(vector_store=None)  # Phase 1: uses DataAgent
+passages = retriever.retrieve(user_message, top_k=5)
+
+system_msg = """Retrieved sources:
+{}
+""".format("\n".join([f"[{i+1}] {p['source']}: {p['snippet']}" for i,p in enumerate(passages)]))
+
+messages = [
+    {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "system", "content": system_msg},
+    {"role": "user", "content": user_message},
+]
+
+resp = qwen_client.chat(messages=messages, ...)
+```
+
+Migration checklist & file additions
+- `agent/embeddings.py` — embedding provider wrapper
+- `agent/vector_store.py` — Chroma/FAISS wrapper + simple API: `index(docs)`, `query(q, k=5)`
+- `agent/retriever.py` — retrieval orchestration (Phase1: DataAgent; Phase2: vector store)
+- `scripts/index_artifacts.py` — index existing outputs
+- `tests/test_retriever.py` — unit tests
+
+Caveats
+- Watch LLM token limits: summarize long tool outputs and include only top-k passages.
+- Balance retrieval size and prompt space; prefer short, citation-rich snippets.
+- Consider privacy/cost of embeddings API if using Qwen or a managed provider.
 
 ## Track 2: AI Showrunner — Hackathon Plan
 
@@ -238,7 +288,7 @@ This project is competing in **Track 2: AI Showrunner**, which requires an agent
 
 ### Concept
 
-**"Pale Blue Dot"** — a series of short (~60-second) silent space documentaries. Each episode is seeded by a real NASA data event (an asteroid close approach, an APOD, a Mars sol's worth of rover photos, a Mars weather report, a solar storm, or a natural event on Earth) and rendered as a cinematic short using Wan/HappyHorse. The Qwen model orchestrates the entire pipeline; NASA MCP tools provide the factual grounding.
+**"Pale Blue Dot"** — a series of short (~60-second) silent cinematic space documentaries. Each episode is seeded by a real NASA data event (an asteroid close approach, an APOD, a Mars sol's worth of rover photos, a Mars weather report, a solar storm, or a natural event on Earth) and rendered as a cinematic short using Wan/HappyHorse. The Qwen model orchestrates the entire pipeline; NASA MCP tools provide the factual grounding.
 
 ### Qwen Cloud integration points
 
@@ -266,10 +316,10 @@ This project is competing in **Track 2: AI Showrunner**, which requires an agent
 |---|---|
 | `get_apod_tool` (date-targeted) | Opening image / title card — "On this day in [year], humanity's eye turned to…" |
 | `get_neo_feed_tool` | Asteroid close approach as plot inciting event |
-| `search_exoplanets_tool` + `get_exoplanet_stats_tool` | "If there is another pale blue dot…" — closing monologue |
+| `search_exoplanets_tool` + `get_exoplanet_stats_tool` | "If there is another pale blue dot…" — closing wide shot |
 | `search_image_library_tool` | B-roll reference frames fed directly to Wan as image-to-video inputs |
 | `get_epic_images_tool` | Full-disc Earth shot for opening/closing wide |
-| `get_cme_events_tool` / `get_flr_events_tool` / `get_gst_events_tool` | Solar storm beats, aurora-style space-weather visuals, and heliophysics narration |
+| `get_cme_events_tool` / `get_flr_events_tool` / `get_gst_events_tool` | Solar storm beats, aurora-style space-weather visuals, and heliophysics data |
 | Mars Trek WMTS *(planned)* | Mars terrain plate, horizon line, landing-site geography, and topographic camera moves |
 | InSight Mars Weather *(planned)* | Wind-driven motion, dustiness, pressure, and temperature for Martian atmosphere scenes |
 | EONET *(planned)* | Storm systems, wildfires, dust outbreaks, and other real Earth event backdrops |
@@ -281,7 +331,7 @@ Track 2 has the highest token allowance of all tracks, but still enforces a ceil
 1. **Tool-call caching** — `nasa-mcp`'s SQLite cache means repeated asset fetches cost zero tokens after the first call.
 2. **Structured outputs** — each agent writes compact JSON/Markdown artifacts; the next agent reads only what it needs rather than the full prior context.
 3. **Scene count cap** — default to 3 scenes per episode; the Orchestrator can trim to 2 if budget is running low mid-pipeline.
-4. **Prompt compression** — Storyboard Agent sends visual prompts only (≤80 tokens each) to the video gen API.
+4. **Prompt compression** — Storyboard Agent sends visual prompts only (≤80 tokens each) to the video gen API, not full narration.
 
 ### Judging criteria alignment
 

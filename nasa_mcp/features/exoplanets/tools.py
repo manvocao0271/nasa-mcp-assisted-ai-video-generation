@@ -34,7 +34,7 @@ def register_exoplanet_tools(mcp: FastMCP, config: Config, cache: Cache) -> None
         - ``st_spectype``     — host star spectral type (e.g. "G2V")
         - ``st_teff``         — host star effective temperature (K)
 
-        Use for scripts about specific exoplanets or exoplanet demographics. Pair with search_image_library_tool to find artist's impression imagery of the system.
+        Use for scripts or voiceovers about specific exoplanets or exoplanet demographics. Pair with search_image_library_tool to find artist's impression imagery of the system.
 
         Examples:
         - query="TRAPPIST"  → all TRAPPIST-1 planets

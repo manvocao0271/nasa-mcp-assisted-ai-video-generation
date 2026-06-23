@@ -389,25 +389,6 @@ if st.session_state.phase == "video_request":
         st.session_state.phase = "image_selection"
         st.rerun()
 
-# ── Image-check callbacks (must be defined before the widgets that use them) ─
-
-def _cb_select_all_images() -> None:
-    n = len((st.session_state.get("pending_assets") or {}).get("images", []))
-    for i in range(n):
-        st.session_state[f"img_check_{i}"] = True
-
-
-def _cb_select_none_images() -> None:
-    n = len((st.session_state.get("pending_assets") or {}).get("images", []))
-    for i in range(n):
-        st.session_state[f"img_check_{i}"] = False
-
-
-def _cb_toggle_image(idx: int) -> None:
-    key = f"img_check_{idx}"
-    st.session_state[key] = not st.session_state.get(key, True)
-
-
 # ── PHASE: image_selection — image picker ───────────────────────────────────
 
 if st.session_state.phase == "image_selection":
@@ -451,38 +432,32 @@ if st.session_state.phase == "image_selection":
                         label_visibility="visible",
                     )
 
-                    # Provide a convenient toggle button; on_click runs before
-                    # the script body so the checkbox key is not yet locked.
+                    # Provide a convenient toggle button (clicking the image
+                    # itself isn't clickable), which flips the checkbox state.
                     toggle_label = "Deselect" if st.session_state.get(key, True) else "Select"
-                    st.button(
-                        toggle_label,
-                        key=f"img_toggle_{i}",
-                        use_container_width=True,
-                        on_click=_cb_toggle_image,
-                        args=(i,),
-                    )
+                    if st.button(toggle_label, key=f"img_toggle_{i}", use_container_width=True):
+                        st.session_state[key] = not st.session_state.get(key, True)
+                        st.rerun()
 
             col_btn, col_all, col_none = st.columns([2, 1, 1])
             generate_clicked = col_btn.button("🎬 Generate Video", type="primary", use_container_width=True, key="btn_generate_video_images")
-            col_all.button(
-                "Select all",
-                use_container_width=True,
-                key="btn_select_all_images",
-                on_click=_cb_select_all_images,
-            )
-            col_none.button(
-                "Select none",
-                use_container_width=True,
-                key="btn_select_none_images",
-                on_click=_cb_select_none_images,
-            )
+            if col_all.button("Select all", use_container_width=True, key="btn_select_all_images"):
+                for i in range(len(images)):
+                    st.session_state[f"img_check_{i}"] = True
+                st.rerun()
+            if col_none.button("Select none", use_container_width=True, key="btn_select_none_images"):
+                for i in range(len(images)):
+                    st.session_state[f"img_check_{i}"] = False
+                st.rerun()
 
             if generate_clicked:
                 selected = [
                     img for i, img in enumerate(images)
                     if st.session_state.get(f"img_check_{i}", True)
                 ]
-                # Empty selection → text-to-video (no reference frames)
+                # Fallback: if user deselected everything, use all images
+                if not selected:
+                    selected = images
                 # Overwrite images list with the user's selection
                 filtered_assets = dict(st.session_state.pending_assets)
                 filtered_assets["images"] = selected
