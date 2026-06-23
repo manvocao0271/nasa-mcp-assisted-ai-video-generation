@@ -46,20 +46,43 @@ class Orchestrator:
         OUTPUT_DIR.mkdir(exist_ok=True)
         (OUTPUT_DIR / "clips").mkdir(exist_ok=True)
 
+    @staticmethod
+    def _cache_matches_topic(assets: dict, user_message: str) -> bool:
+        """Return True if the cached assets are relevant to the requested topic.
+
+        Uses simple keyword overlap: at least one significant word from the
+        user message must appear in the cached query string (case-insensitive).
+        Single-word queries must match exactly.
+        """
+        cached_query = (assets.get("query") or "").lower()
+        if not cached_query:
+            return False
+        # Extract words longer than 3 chars to skip stop words
+        topic_words = {w for w in user_message.lower().split() if len(w) > 3}
+        if not topic_words:
+            return cached_query == user_message.lower()
+        return any(w in cached_query for w in topic_words)
+
     def fetch_data(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
         assets_path = OUTPUT_DIR / "assets.json"
         if resume and assets_path.exists():
             assets = json.loads(assets_path.read_text())
-            yield {"stage": "data", "status": "running", "detail": "Loading cached NASA data…"}
-            yield {"stage": "data", "status": "done",
-                   "detail": f"Loaded from cache ({len(assets.get('images', []))} images)",
-                   "assets": assets}
+            if self._cache_matches_topic(assets, user_message):
+                yield {"stage": "data", "status": "running", "detail": "Loading cached NASA data…"}
+                yield {"stage": "data", "status": "done",
+                       "detail": f"Loaded from cache ({len(assets.get('images', []))} images)",
+                       "assets": assets}
+                return
+            # Cache is stale (different topic) — fall through to a fresh fetch
+            fetch_detail = "Cached data is for a different topic — fetching fresh NASA data…"
         else:
-            yield {"stage": "data", "status": "running", "detail": "Fetching NASA data…"}
-            assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message)
-            yield {"stage": "data", "status": "done",
-                   "detail": f"{len(assets.get('images', []))} images fetched",
-                   "assets": assets}
+            fetch_detail = "Fetching NASA data…"
+
+        yield {"stage": "data", "status": "running", "detail": fetch_detail}
+        assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message)
+        yield {"stage": "data", "status": "done",
+               "detail": f"{len(assets.get('images', []))} images fetched",
+               "assets": assets}
 
     def run_pipeline(self, user_message: str, assets: dict, resume: bool = False, chat_description: str = "") -> Generator[dict, None, None]:
         n = scene_count(assets)
