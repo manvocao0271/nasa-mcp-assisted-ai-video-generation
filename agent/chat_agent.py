@@ -161,7 +161,10 @@ class ChatAgent:
         answer = response.choices[0].message.content or ""
 
         should_generate = self._wants_video(user_message, answer)
-        video_topic = user_message[:200] if should_generate else None
+        if should_generate:
+            video_topic: str | None = self._extract_specific_topic(answer, user_message)
+        else:
+            video_topic = None
 
         return {
             "answer": answer,
@@ -171,28 +174,31 @@ class ChatAgent:
             "chat_assets": chat_assets,
         }
 
-    @staticmethod
-    def _extract_video_offer(answer: str) -> str | None:
-        """Extract the assistant's video offer to use as search topic.
+    def _extract_specific_topic(self, answer: str, fallback: str) -> str:
+        """Use an LLM call to distil a precise 5-10 word NASA search query from *answer*.
 
-        Looks for patterns like:
-          - "visual journey through the Milky Way"
-          - "barred spiral galaxy"
-        And returns the first found, otherwise None.
+        E.g. if the answer discusses WASP-76b in detail, returns
+        "WASP-76b ultra-hot exoplanet" rather than "exoplanet".
+        Falls back to *fallback* on any error.
         """
-        answer_lower = (answer or "").lower()
-        phrases = [
-            "visual journey through the milky way",
-            "barred spiral galaxy",
-            "journey through space",
-            "solar system",
-            "exoplanet",
-            "asteroid",
-        ]
-        for phrase in phrases:
-            if phrase in answer_lower:
-                return phrase[:120]  # Return the phrase itself, not the full answer
-        return None
+        try:
+            extraction_msgs = [
+                {
+                    "role": "system",
+                    "content": (
+                        "Extract the single main astronomical subject from the text below as a short "
+                        "NASA image search query (5–10 words max). "
+                        "Include the specific object name, spacecraft/telescope, or phenomenon. "
+                        "Reply with ONLY the search query — no explanation, no punctuation around it."
+                    ),
+                },
+                {"role": "user", "content": answer[:800]},
+            ]
+            resp = self.client.chat(messages=extraction_msgs)
+            topic = (resp.choices[0].message.content or "").strip().strip('"\'')
+            return topic[:200] if topic else fallback[:200]
+        except Exception:
+            return fallback[:200]
 
     @staticmethod
     def _is_affirmative(text: str) -> bool:
@@ -323,9 +329,15 @@ class ChatAgent:
                         text = text[start + len("<think>"):]
 
         result["answer"] = full_text
-        result["should_generate_video"] = self._wants_video(user_message, full_text)
-        # For video topic, prefer the assistant's offer if present, else use user query.
-        video_topic = self._extract_video_offer(full_text) or user_message[:200]
+        should_generate = self._wants_video(user_message, full_text)
+        result["should_generate_video"] = should_generate
+        # Extract a specific, targeted NASA search query from the answer so the
+        # DataAgent fetches images for the right subject (e.g. "WASP-76b ultra-hot
+        # Jupiter" instead of the vague user message "show me an interesting exoplanet").
+        if should_generate:
+            video_topic = self._extract_specific_topic(full_text, user_message)
+        else:
+            video_topic = user_message[:200]
         result["video_topic"] = video_topic
         result["retrieved_passages"] = passages
         result["chat_assets"] = chat_assets

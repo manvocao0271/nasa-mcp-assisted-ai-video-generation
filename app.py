@@ -362,7 +362,11 @@ if st.session_state.phase == "video_request":
         try:
             orchestrator = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
             with status_area:
-                for update in orchestrator.fetch_data(video_topic, resume=_fetch_resume):
+                for update in orchestrator.fetch_data(
+                    video_topic,
+                    resume=_fetch_resume,
+                    context=st.session_state.get("chat_description", ""),
+                ):
                     assets = update.get("assets", assets)
                     stage  = update["stage"]
                     status = update["status"]
