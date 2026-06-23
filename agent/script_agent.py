@@ -170,7 +170,7 @@ class ScriptAgent:
             ref_url = selected_urls[i] if i < len(selected_urls) else ""
             normalized.append({
                 "scene": i + 1,
-                "caption": src.get("caption") or src.get("narration", ""),
+                "caption": src.get("caption", ""),
                 "mood": src.get("mood", "cinematic"),
                 "ref_image_url": ref_url,
                 "data_ref": src.get("data_ref", images[i].get("source", "") if i < len(images) else ""),

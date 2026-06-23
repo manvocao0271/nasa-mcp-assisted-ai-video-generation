@@ -26,8 +26,8 @@ _API_BASE = "https://dashscope-intl.aliyuncs.com/api/v1"
 _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
-MODEL_T2V = "wan2.7-t2v-2026-04-25"  # supports duration; swap to wan2.1-t2v-turbo for faster 5s clips
-MODEL_I2V = "wan2.7-i2v-2026-04-25"  # async, input.img, supports duration/resolution/prompt_extend
+MODEL_T2V = "wan2.7-t2v"  # supports duration; swap to wan2.1-t2v-turbo for faster 5s clips
+MODEL_I2V = "wan2.7-i2v"  # async, input.img, supports duration/resolution/prompt_extend
 # MODEL_I2V = "happyhorse-1.0-i2v"   # sync, input.media[first_frame], duration only
 # MODEL_I2V = "happyhorse-1.5-i2v"   # sync, input.media[first_frame], duration only
 
@@ -315,6 +315,7 @@ class VideoGen:
             "Lighting: maintain constant exposure and brightness for all light sources; do NOT increase bloom, "
             "lens flares, or brightness of stars/galaxies during the duration. "
             "Style: photorealistic, cinematic, minimal color grading. "
+            "Audio: no speech, no dialogue, no voiceover, no text-to-speech. "
             f"Duration: {duration_seconds} seconds."
         )
 
