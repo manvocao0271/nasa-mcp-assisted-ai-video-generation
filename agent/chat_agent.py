@@ -25,7 +25,9 @@ and cite specific facts, titles, dates, or descriptions from it in your answer.
 When answering:
 1. Explain concepts clearly and concisely
 2. Use any provided NASA data as grounding — prefer it over your training knowledge for current events
-3. If a visual would help, you may offer: "Would you like me to generate a short video showing this?"
+3. When explaining a visual astronomical phenomenon (nebula, galaxy, star, planet, asteroid, black hole,
+   supernova, aurora, etc.), ALWAYS end your response with this exact sentence:
+   "Would you like me to generate a short video showing this?"
 
 Do not make up APOD titles, dates, or image descriptions — only state what is in the provided data.
 """
@@ -96,21 +98,42 @@ _USER_VIDEO_PATTERNS = (
 )
 
 _ASSISTANT_VIDEO_OFFERS = (
+    # Exact phrase used by system prompt
     "would you like me to generate a short video",
     "would you like me to generate a video",
+    # "I can" variants
     "i can generate a short video",
-    "i can generate a video showing",
+    "i can generate a video",
+    "i can create a short video",
+    "i can create a video",
+    "i can make a short video",
+    "i can make a video",
+    # "Would you like to see" variants
+    "would you like to see a short video",
+    "would you like to see a video",
+    # phrase-based
     "generate a short video showing",
+    "generate a video showing",
+    "if you'd like, i can generate",
+    "if you'd like, i can create",
 )
 
-# Broader regex that catches model rephrasing of the video offer
-# (e.g. "Want me to create a quick video?", "Shall I make a short film?")
+# Broader regex — catches model rephrasing of the video offer.
+# Four alternative sub-patterns cover the most common Qwen phrasings.
 _ASSISTANT_VIDEO_OFFER_RE = re.compile(
-    r"(?:would you like|want me to|shall i|can i|let me)"
-    r".{0,40}?"
-    r"(?:generate|create|make|produce)"
-    r".{0,30}?"
-    r"(?:video|clip|film|animation)",
+    r"(?:"
+    # A: classic "would you like / want me to / shall I / can I / let me … generate … video"
+    r"(?:would you like|want me to|shall i|can i|let me).{0,50}?(?:generate|create|make|produce).{0,40}?(?:video|clip|film|animation)"
+    r"|"
+    # B: "I can generate/create/make … video"
+    r"i can (?:generate|create|make|produce).{0,50}?(?:video|clip|film|animation)"
+    r"|"
+    # C: "if you'd like / if you're interested … video"
+    r"if you(?:'d like|'re interested| want).{0,80}?(?:video|clip|film|animation)"
+    r"|"
+    # D: "would you like to see/watch … video"
+    r"would you like to (?:see|watch|view).{0,50}?(?:video|clip|film|animation)"
+    r")",
     re.IGNORECASE,
 )
 

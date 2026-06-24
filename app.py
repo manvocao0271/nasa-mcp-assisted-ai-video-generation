@@ -230,26 +230,28 @@ resume_mode = st.sidebar.toggle(
     help="Reuse cached NASA assets and script/storyboard from the last run when available.",
 )
 
-if st.sidebar.button("🎬 Generate video from last message", use_container_width=True):
-    last_user = ""
-    for m in reversed(st.session_state.get("messages", [])):
-        if m.get("role") == "user":
-            last_user = m.get("content") or ""
-            break
-    if not last_user:
-        last_user = st.session_state.get("pending_message", "") or ""
-    if not last_user:
-        st.sidebar.warning("No user message found.")
+_last_user_msg = next(
+    (m.get("content") or "" for m in reversed(st.session_state.get("messages", [])) if m.get("role") == "user"),
+    st.session_state.get("pending_message", "") or "",
+)
+_sidebar_topic = st.sidebar.text_input(
+    "Video topic",
+    value=_last_user_msg,
+    placeholder="e.g. star formation, Mars landscape…",
+    key="sidebar_video_topic_input",
+)
+if st.sidebar.button("🎬 Generate video", use_container_width=True):
+    _topic = _sidebar_topic.strip()
+    if not _topic:
+        st.sidebar.warning("Enter a topic above to generate a video.")
     else:
-        # Also grab the last assistant reply to use as visual description context
-        last_assistant = ""
-        for m in reversed(st.session_state.get("messages", [])):
-            if m.get("role") == "assistant":
-                last_assistant = m.get("content") or ""
-                break
-        st.session_state.chat_description = last_assistant
-        st.session_state.pending_message = last_user
-        st.session_state.video_topic = last_user
+        _last_assistant = next(
+            (m.get("content") or "" for m in reversed(st.session_state.get("messages", [])) if m.get("role") == "assistant"),
+            "",
+        )
+        st.session_state.chat_description = _last_assistant
+        st.session_state.pending_message = _topic
+        st.session_state.video_topic = _topic
         st.session_state.phase = "video_request"
         st.rerun()
 

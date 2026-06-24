@@ -106,9 +106,17 @@ class VideoGen:
         ``~medium.jpg`` variant to stay within API payload limits.
         """
         _SUPPORTED = ("image/jpeg", "image/png", "image/webp")
-        candidates = [url]
+        # NASA Image Library only allows ~thumb.jpg from external servers;
+        # ~large.jpg and ~medium.jpg return 403.  Try the smallest accessible
+        # variant first, then progressively larger, then the original URL.
+        candidates: list[str] = []
         if "~large." in url:
-            candidates.insert(0, url.replace("~large.", "~medium."))
+            candidates.append(url.replace("~large.", "~thumb."))
+            candidates.append(url.replace("~large.", "~medium."))
+        elif "~orig." in url:
+            candidates.append(url.replace("~orig.", "~thumb."))
+            candidates.append(url.replace("~orig.", "~medium."))
+        candidates.append(url)
         for candidate in candidates:
             try:
                 with httpx.Client(timeout=30, follow_redirects=True) as client:
@@ -200,6 +208,7 @@ class VideoGen:
         _submit_timeout = httpx.Timeout(connect=15, read=60, write=300, pool=15)
         with httpx.Client(timeout=_submit_timeout) as client:
             if media_url:
+                print(f"[VideoGen] I2V mode — reference image resolved ({len(media_url)} chars data URI)")
                 resp = client.post(_SUBMIT_URL, json=_i2v_body(MODEL_I2V), headers=self._headers)
                 if not resp.is_success:
                     err = f"{resp.status_code}: {resp.text[:200]}"
@@ -212,8 +221,10 @@ class VideoGen:
                         self.warnings.append(
                             f"⚠️ I2V submission failed ({err}). Falling back to T2V."
                         )
+                    print(f"[VideoGen] I2V failed ({err}), falling back to T2V")
                     resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
             else:
+                print(f"[VideoGen] T2V mode — no reference image (ref_image_url empty or fetch failed)")
                 resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
 
         if not resp.is_success:
