@@ -27,7 +27,7 @@ load_dotenv()
 
 NASA_API_KEY = os.environ.get("NASA_API_KEY", "DEMO_KEY")
 QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
-DEBUG = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
+DEBUG = 1
 
 # ── Page config ──────────────────────────────────────────────────────────────
 
@@ -256,6 +256,7 @@ if st.sidebar.button("🎬 Generate video from last message", use_container_widt
 if DEBUG:
     with st.sidebar.expander("Debug", expanded=False):
         st.write("phase:", st.session_state.get("phase"))
+        st.write("pending_video_offer:", st.session_state.get("pending_video_offer"))
         pending = st.session_state.get("pending_assets") or {}
         st.write("pending_assets.images:", len(pending.get("images", [])))
         st.write("pending_message:", st.session_state.get("pending_message"))
@@ -277,6 +278,50 @@ user_input = st.chat_input(
 if user_input and st.session_state.phase == "idle":
     st.session_state.pending_message = user_input
 
+    # ── Affirmative shortcut ──────────────────────────────────────────────
+    # If the user replies with a short "yes/sure/please" while a video offer
+    # is pending, skip the LLM call entirely and go straight to video gen.
+    # We check THREE signals in order:
+    #   1. pending_video_offer session flag (set when _wants_video fires)
+    #   2. Last in-memory assistant message (survives if the flag was missed)
+    #   3. Last DB-persisted assistant response (survives hot-reloads)
+    def _last_assistant_offered_video() -> bool:
+        # In-memory messages (fastest, most current)
+        last_asst = next(
+            (m["content"] for m in reversed(st.session_state.get("messages", [])) if m["role"] == "assistant"),
+            "",
+        )
+        if ChatAgent._is_video_offer(last_asst):
+            return True
+        # DB history (survives session resets / hot-reloads)
+        db_history = st.session_state.run_db.get_conversation_history(st.session_state.conversation_id)
+        if db_history:
+            last_db_asst = db_history[-1].get("assistant_response", "")
+            if ChatAgent._is_video_offer(last_db_asst):
+                return True
+        return False
+
+    if ChatAgent._is_affirmative(user_input) and (
+        st.session_state.get("pending_video_offer") or _last_assistant_offered_video()
+    ):
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+        confirmation = "Let's generate that video! Starting now…"
+        st.session_state.messages.append({"role": "assistant", "content": confirmation})
+        with st.chat_message("assistant"):
+            st.markdown(confirmation)
+        _save_chat_turn(user_input, confirmation)
+        st.session_state.pending_video_offer = False
+        chat_assets = st.session_state.get("chat_assets", {})
+        if chat_assets.get("images"):
+            st.session_state.pending_assets = chat_assets
+            st.session_state.phase = "image_selection"
+        else:
+            st.session_state.phase = "video_request"
+        st.rerun()
+
+    # ── Normal chat processing ────────────────────────────────────────────
     # Show user message immediately
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
@@ -297,8 +342,11 @@ if user_input and st.session_state.phase == "idle":
             )
             answer = answer if isinstance(answer, str) else "".join(answer)
 
-            # answer is the full string returned by st.write_stream
-            should_generate = result.get("should_generate_video", False)
+            # answer is the full string returned by st.write_stream.
+            # Also check answer directly: the generator's post-loop code
+            # (which sets result["should_generate_video"]) may not execute if
+            # the streaming client raises before the generator is fully exhausted.
+            should_generate = result.get("should_generate_video", False) or ChatAgent._is_video_offer(answer or "")
             video_topic = result.get("video_topic", user_input)
             retrieved = result.get("retrieved_passages", [])
 
@@ -312,6 +360,12 @@ if user_input and st.session_state.phase == "idle":
                             st.markdown(f"**{source}** — {snippet}  \n_{doc}_")
                         else:
                             st.markdown(f"**{source}** — {doc}")
+
+            # Prefer result["answer"] (set by generator) if st.write_stream returned
+            # something empty — can happen when the stream ends with a sentinel that
+            # causes the generator to exit before its post-loop assignments run.
+            if not answer and result.get("answer"):
+                answer = result["answer"]
 
             st.session_state.messages.append({"role": "assistant", "content": answer})
             st.session_state.chat_description = answer

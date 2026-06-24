@@ -103,6 +103,17 @@ _ASSISTANT_VIDEO_OFFERS = (
     "generate a short video showing",
 )
 
+# Broader regex that catches model rephrasing of the video offer
+# (e.g. "Want me to create a quick video?", "Shall I make a short film?")
+_ASSISTANT_VIDEO_OFFER_RE = re.compile(
+    r"(?:would you like|want me to|shall i|can i|let me)"
+    r".{0,40}?"
+    r"(?:generate|create|make|produce)"
+    r".{0,30}?"
+    r"(?:video|clip|film|animation)",
+    re.IGNORECASE,
+)
+
 # Short affirmative replies that confirm the assistant's video offer.
 _AFFIRMATIVE_PATTERNS = (
     r"^\s*(yes|yeah|yep|yup|sure|ok|okay|please|go ahead|do\s+it|absolutely|definitely|of\s+course|sounds\s+good|let'?s?\s+do\s+it|go\s+for\s+it)\s*[.!]?\s*$",
@@ -206,14 +217,22 @@ class ChatAgent:
         return any(re.search(p, text.strip(), re.IGNORECASE) for p in _AFFIRMATIVE_PATTERNS)
 
     @staticmethod
+    def _is_video_offer(text: str) -> bool:
+        """Return True if *text* contains a video-generation offer (exact or fuzzy)."""
+        lower = (text or "").lower()
+        return (
+            any(phrase in lower for phrase in _ASSISTANT_VIDEO_OFFERS)
+            or bool(_ASSISTANT_VIDEO_OFFER_RE.search(lower))
+        )
+
+    @staticmethod
     def _wants_video(user_message: str, answer: str) -> bool:
         user_lower = (user_message or "").lower()
-        answer_lower = (answer or "").lower()
 
         if any(re.search(p, user_lower) for p in _USER_VIDEO_PATTERNS):
             return True
 
-        return any(phrase in answer_lower for phrase in _ASSISTANT_VIDEO_OFFERS)
+        return ChatAgent._is_video_offer(answer)
 
     def answer_stream_internal(
         self,
@@ -249,7 +268,7 @@ class ChatAgent:
         last_run = conversation_history[-1] if conversation_history else None
         if last_run and self._is_affirmative(user_message):
             last_assistant = last_run.get("assistant_response", "")
-            if any(phrase in last_assistant.lower() for phrase in _ASSISTANT_VIDEO_OFFERS):
+            if ChatAgent._is_video_offer(last_assistant):
                 topic = last_run.get("user_message", user_message)[:200]
                 msg = "Let's generate that video! Starting now…"
                 result["answer"] = msg
