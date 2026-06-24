@@ -25,9 +25,6 @@ and cite specific facts, titles, dates, or descriptions from it in your answer.
 When answering:
 1. Explain concepts clearly and concisely
 2. Use any provided NASA data as grounding — prefer it over your training knowledge for current events
-3. When explaining a visual astronomical phenomenon (nebula, galaxy, star, planet, asteroid, black hole,
-   supernova, aurora, etc.), ALWAYS end your response with this exact sentence:
-   "Would you like me to generate a short video showing this?"
 
 Do not make up APOD titles, dates, or image descriptions — only state what is in the provided data.
 """
@@ -82,67 +79,7 @@ def _assets_from_urls(urls: list[str], query: str) -> dict:
     return {"query": query, "tools_called": [], "images": images, "data": {}}
 
 
-# User must explicitly ask for video — not broad phrases like "show me" alone.
-_USER_VIDEO_PATTERNS = (
-    r"\bgenerate\s+(a\s+)?video\b",
-    r"\bmake\s+(a\s+)?video\b",
-    r"\bcreate\s+(a\s+)?video\b",
-    r"\bproduce\s+(a\s+)?video\b",
-    r"\bshort\s+video\b",
-    r"\bshort\s+film\b",
-    r"\bvideo\s+(about|of|showing|on)\b",
-    r"\bfilm\s+(about|of|showing|on)\b",
-    r"\banimate\b",
-    r"\bwhat\s+it'?s?\s+like\s+(on|at|in)\b.+\b(video|film|clip)\b",
-    r"\bshow\s+me.+\b(video|film|clip)\b",
-)
 
-_ASSISTANT_VIDEO_OFFERS = (
-    # Exact phrase used by system prompt
-    "would you like me to generate a short video",
-    "would you like me to generate a video",
-    # "I can" variants
-    "i can generate a short video",
-    "i can generate a video",
-    "i can create a short video",
-    "i can create a video",
-    "i can make a short video",
-    "i can make a video",
-    # "Would you like to see" variants
-    "would you like to see a short video",
-    "would you like to see a video",
-    # phrase-based
-    "generate a short video showing",
-    "generate a video showing",
-    "if you'd like, i can generate",
-    "if you'd like, i can create",
-)
-
-# Broader regex — catches model rephrasing of the video offer.
-# Four alternative sub-patterns cover the most common Qwen phrasings.
-_ASSISTANT_VIDEO_OFFER_RE = re.compile(
-    r"(?:"
-    # A: classic "would you like / want me to / shall I / can I / let me … generate … video"
-    r"(?:would you like|want me to|shall i|can i|let me).{0,50}?(?:generate|create|make|produce).{0,40}?(?:video|clip|film|animation)"
-    r"|"
-    # B: "I can generate/create/make … video"
-    r"i can (?:generate|create|make|produce).{0,50}?(?:video|clip|film|animation)"
-    r"|"
-    # C: "if you'd like / if you're interested … video"
-    r"if you(?:'d like|'re interested| want).{0,80}?(?:video|clip|film|animation)"
-    r"|"
-    # D: "would you like to see/watch … video"
-    r"would you like to (?:see|watch|view).{0,50}?(?:video|clip|film|animation)"
-    r")",
-    re.IGNORECASE,
-)
-
-# Short affirmative replies that confirm the assistant's video offer.
-_AFFIRMATIVE_PATTERNS = (
-    r"^\s*(yes|yeah|yep|yup|sure|ok|okay|please|go ahead|do\s+it|absolutely|definitely|of\s+course|sounds\s+good|let'?s?\s+do\s+it|go\s+for\s+it)\s*[.!]?\s*$",
-    r"^\s*yes[,\s]+please\s*[.!]?\s*$",
-    r"^\s*please\s+(do|generate|make|create)\s+(it|that|a\s+video)\s*[.!]?\s*$",
-)
 
 
 class ChatAgent:
@@ -194,68 +131,11 @@ class ChatAgent:
         response = self.client.chat(messages=messages)
         answer = response.choices[0].message.content or ""
 
-        should_generate = self._wants_video(user_message, answer)
-        if should_generate:
-            video_topic: str | None = self._extract_specific_topic(answer, user_message)
-        else:
-            video_topic = None
-
         return {
             "answer": answer,
-            "should_generate_video": should_generate,
-            "video_topic": video_topic,
             "retrieved_passages": passages,
             "chat_assets": chat_assets,
         }
-
-    def _extract_specific_topic(self, answer: str, fallback: str) -> str:
-        """Use an LLM call to distil a precise 5-10 word NASA search query from *answer*.
-
-        E.g. if the answer discusses WASP-76b in detail, returns
-        "WASP-76b ultra-hot exoplanet" rather than "exoplanet".
-        Falls back to *fallback* on any error.
-        """
-        try:
-            extraction_msgs = [
-                {
-                    "role": "system",
-                    "content": (
-                        "Extract the single main astronomical subject from the text below as a short "
-                        "NASA image search query (5–10 words max). "
-                        "Include the specific object name, spacecraft/telescope, or phenomenon. "
-                        "Reply with ONLY the search query — no explanation, no punctuation around it."
-                    ),
-                },
-                {"role": "user", "content": answer[:800]},
-            ]
-            resp = self.client.chat(messages=extraction_msgs)
-            topic = (resp.choices[0].message.content or "").strip().strip('"\'')
-            return topic[:200] if topic else fallback[:200]
-        except Exception:
-            return fallback[:200]
-
-    @staticmethod
-    def _is_affirmative(text: str) -> bool:
-        """Return True if *text* is a short affirmative reply."""
-        return any(re.search(p, text.strip(), re.IGNORECASE) for p in _AFFIRMATIVE_PATTERNS)
-
-    @staticmethod
-    def _is_video_offer(text: str) -> bool:
-        """Return True if *text* contains a video-generation offer (exact or fuzzy)."""
-        lower = (text or "").lower()
-        return (
-            any(phrase in lower for phrase in _ASSISTANT_VIDEO_OFFERS)
-            or bool(_ASSISTANT_VIDEO_OFFER_RE.search(lower))
-        )
-
-    @staticmethod
-    def _wants_video(user_message: str, answer: str) -> bool:
-        user_lower = (user_message or "").lower()
-
-        if any(re.search(p, user_lower) for p in _USER_VIDEO_PATTERNS):
-            return True
-
-        return ChatAgent._is_video_offer(answer)
 
     def answer_stream_internal(
         self,
@@ -274,32 +154,14 @@ class ChatAgent:
 
         After ``st.write_stream`` returns, *result* contains:
         - ``answer``               – full response string
-        - ``should_generate_video`` – bool
-        - ``video_topic``          – str
         - ``retrieved_passages``   – list[dict]
+        - ``chat_assets``          – NASA images/data fetched for this turn
 
         Thinking tokens enclosed in ``<think>…</think>`` are filtered out so
         they never reach the UI, even when a reasoning-capable model is used.
         """
         if conversation_history is None:
             conversation_history = []
-
-        # ── Affirmative shortcut ──────────────────────────────────────────────
-        # If the user is just saying "yes/sure/please" in response to the
-        # assistant's previous video offer, skip the LLM call entirely and
-        # trigger video generation immediately.
-        last_run = conversation_history[-1] if conversation_history else None
-        if last_run and self._is_affirmative(user_message):
-            last_assistant = last_run.get("assistant_response", "")
-            if ChatAgent._is_video_offer(last_assistant):
-                topic = last_run.get("user_message", user_message)[:200]
-                msg = "Let's generate that video! Starting now…"
-                result["answer"] = msg
-                result["should_generate_video"] = True
-                result["video_topic"] = topic
-                result["retrieved_passages"] = []
-                yield msg
-                return
 
         messages = [{"role": "system", "content": _build_system_prompt()}]
 
@@ -371,18 +233,7 @@ class ChatAgent:
                         text = text[start + len("<think>"):]
 
         result["answer"] = full_text
-        should_generate = self._wants_video(user_message, full_text)
-        result["should_generate_video"] = should_generate
-        # Extract a specific, targeted NASA search query from the answer so the
-        # DataAgent fetches images for the right subject (e.g. "WASP-76b ultra-hot
-        # Jupiter" instead of the vague user message "show me an interesting exoplanet").
-        if should_generate:
-            video_topic = self._extract_specific_topic(full_text, user_message)
-        else:
-            video_topic = user_message[:200]
-        result["video_topic"] = video_topic
         result["retrieved_passages"] = passages
-        result["chat_assets"] = chat_assets
         result["chat_assets"] = chat_assets
 
     def chat_with_streaming(

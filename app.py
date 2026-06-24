@@ -59,12 +59,39 @@ for key, default in [
     ("pending_message", ""),
     ("pending_assets", {}),
     ("video_topic", ""),
-    ("pending_video_offer", False),
+    ("video_assets", {}),
     ("chat_description", ""),
     ("chat_assets", {}),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
+
+# ── Helpers (needed before sidebar renders) ─────────────────────────────────
+
+def _fetch_thumb(url: str) -> bytes | str:
+    """Return image bytes for domains that block browser access, else the original URL.
+
+    NASA Image Library assets (images-assets.nasa.gov) return 403/timeout when loaded directly by the browser. We fetch them server-side and hand Streamlit raw bytes instead, which always works.
+    We also swap ~large.jpg / ~orig.jpg for ~thumb.jpg to keep previews fast.
+    """
+    _PROXY_DOMAINS = ("images-assets.nasa.gov",)
+    if not any(d in url for d in _PROXY_DOMAINS):
+        return url  # fast path — most URLs are fine
+    # Use the small thumbnail variant for display speed
+    thumb_url = url.replace("~large.", "~thumb.").replace("~orig.", "~thumb.").replace("~medium.", "~thumb.")
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            r = client.get(thumb_url)
+        if r.status_code < 400:
+            return r.content
+        # thumb variant failed — try the original URL
+        r = client.get(url)
+        if r.status_code < 400:
+            return r.content
+    except Exception:
+        pass
+    return url  # fall back to URL on failure; Streamlit will show broken-image icon
+
 
 # ── Sidebar — conversation and source panel ──────────────────────────────────
 
@@ -72,9 +99,50 @@ with st.sidebar:
     tab_chat, tab_history = st.tabs(["Chat", "History"])
 
     with tab_chat:
-        st.header("NASA Sources")
-        sources_placeholder = st.empty()
-        sources_placeholder.info("Sources will appear here after a run.")
+        st.header("Video Generator")
+        st.caption("Click **\U0001f3ac Use for video** on any chat response to pre-fill the prompt.")
+
+        # Reference images from the last '\U0001f3ac Use for video' click
+        _ref_imgs = st.session_state.get("video_assets", {}).get("images", [])
+        if _ref_imgs:
+            st.caption(f"Reference images ({len(_ref_imgs)}):")
+            for img in _ref_imgs[:3]:
+                _t = _fetch_thumb(img.get("thumb_url") or img.get("url", ""))
+                st.image(_t, caption=img.get("caption", ""), use_container_width=True)
+                st.caption(f"Source: {img.get('source', 'NASA')}")
+        else:
+            st.info("No reference images yet.")
+
+        st.text_area(
+            "Video prompt",
+            placeholder="Click '\U0001f3ac Use for video' on a chat response, or type a description\u2026",
+            height=140,
+            key="video_prompt_area",
+        )
+
+        _cache_exists = (
+            Path("output/assets.json").exists() or Path("output/script.json").exists()
+        )
+        st.toggle(
+            "\u267b\ufe0f Retry (use cached data)",
+            value=False,
+            disabled=not _cache_exists,
+            help="Reuse cached NASA assets and script/storyboard from the last run.",
+            key="resume_mode_toggle",
+        )
+
+        _gen_prompt = (st.session_state.get("video_prompt_area") or "").strip()
+        if st.button("\U0001f3ac Generate Video", use_container_width=True, disabled=not _gen_prompt):
+            _vids = st.session_state.get("video_assets", {})
+            st.session_state.pending_message = _gen_prompt
+            st.session_state.video_topic = _gen_prompt
+            st.session_state.chat_description = _gen_prompt
+            if _vids.get("images"):
+                st.session_state.pending_assets = _vids
+                st.session_state.phase = "image_selection"
+            else:
+                st.session_state.phase = "video_request"
+            st.rerun()
 
     with tab_history:
         st.header("Past Conversations")
@@ -98,9 +166,23 @@ with st.sidebar:
 
 # ── Chat history replay ───────────────────────────────────────────────────────
 
-for message in st.session_state.messages:
+for idx, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+        if message["role"] == "assistant":
+            # Show inline NASA thumbnails when this message has associated assets
+            msg_imgs = message.get("assets", {}).get("images", [])
+            if msg_imgs:
+                cols = st.columns(min(len(msg_imgs), 3))
+                for col, img in zip(cols, msg_imgs[:3]):
+                    with col:
+                        _t = _fetch_thumb(img.get("thumb_url") or img.get("url", ""))
+                        st.image(_t, caption=img.get("caption", "")[:50], use_container_width=True)
+            # Button to copy this response + its images to the sidebar video generator
+            if st.button("\U0001f3ac Use for video", key=f"use_for_video_{idx}"):
+                st.session_state["video_prompt_area"] = message["content"]
+                st.session_state.video_assets = message.get("assets", {})
+                st.rerun()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,32 +195,6 @@ LABELS = {
     "storyboard": "Generating storyboard",
     "video":      "Generating video clips (Wan 2.7)",
 }
-
-
-def _fetch_thumb(url: str) -> bytes | str:
-    """Return image bytes for domains that block browser access, else the original URL.
-
-    NASA Image Library assets (images-assets.nasa.gov) return 403/timeout when loaded directly by the browser. We fetch them server-side and hand Streamlit raw bytes instead, which always works.
-    We also swap ~large.jpg / ~orig.jpg for ~thumb.jpg to keep previews fast.
-    """
-
-    _PROXY_DOMAINS = ("images-assets.nasa.gov",)
-    if not any(d in url for d in _PROXY_DOMAINS):
-        return url  # fast path — most URLs are fine
-    # Use the small thumbnail variant for display speed
-    thumb_url = url.replace("~large.", "~thumb.").replace("~orig.", "~thumb.").replace("~medium.", "~thumb.")
-    try:
-        with httpx.Client(timeout=15, follow_redirects=True) as client:
-            r = client.get(thumb_url)
-        if r.status_code < 400:
-            return r.content
-        # thumb variant failed — try the original URL
-        r = client.get(url)
-        if r.status_code < 400:
-            return r.content
-    except Exception:
-        pass
-    return url  # fall back to URL on failure; Streamlit will show broken-image icon
 
 
 def _render_pipeline_stages(generator, status_area) -> dict:
@@ -183,13 +239,9 @@ def _show_clips() -> list[Path]:
 
 
 def _update_sidebar(images: list[dict]) -> None:
+    """After a pipeline run, store the used images as video reference assets."""
     if images:
-        with sources_placeholder.container():
-            for img in images:
-                st.image(_fetch_thumb(img["url"]), caption=img.get("caption", ""), use_container_width=True)
-                st.caption(f"Source: {img.get('source', 'NASA')}")
-    else:
-        sources_placeholder.info("No images in this run.")
+        st.session_state.video_assets = {"images": images}
 
 
 def _save_chat_turn(user_message: str, assistant_response: str) -> None:
@@ -221,49 +273,15 @@ if not QWEN_API_KEY:
     st.error("QWEN_API_KEY is not set. Add it to your .env file.")
     st.stop()
 
-# Show retry toggle only when cached data exists
-_cache_exists = (Path("output/assets.json").exists() or Path("output/script.json").exists())
-resume_mode = st.sidebar.toggle(
-    "♻️ Retry (use cached data)",
-    value=False,
-    disabled=not _cache_exists,
-    help="Reuse cached NASA assets and script/storyboard from the last run when available.",
-)
-
-_last_user_msg = next(
-    (m.get("content") or "" for m in reversed(st.session_state.get("messages", [])) if m.get("role") == "user"),
-    st.session_state.get("pending_message", "") or "",
-)
-_sidebar_topic = st.sidebar.text_input(
-    "Video topic",
-    value=_last_user_msg,
-    placeholder="e.g. star formation, Mars landscape…",
-    key="sidebar_video_topic_input",
-)
-if st.sidebar.button("🎬 Generate video", use_container_width=True):
-    _topic = _sidebar_topic.strip()
-    if not _topic:
-        st.sidebar.warning("Enter a topic above to generate a video.")
-    else:
-        _last_assistant = next(
-            (m.get("content") or "" for m in reversed(st.session_state.get("messages", [])) if m.get("role") == "assistant"),
-            "",
-        )
-        st.session_state.chat_description = _last_assistant
-        st.session_state.pending_message = _topic
-        st.session_state.video_topic = _topic
-        st.session_state.phase = "video_request"
-        st.rerun()
-
 if DEBUG:
     with st.sidebar.expander("Debug", expanded=False):
         st.write("phase:", st.session_state.get("phase"))
-        st.write("pending_video_offer:", st.session_state.get("pending_video_offer"))
         pending = st.session_state.get("pending_assets") or {}
         st.write("pending_assets.images:", len(pending.get("images", [])))
+        st.write("video_assets.images:", len(st.session_state.get("video_assets", {}).get("images", [])))
         st.write("pending_message:", st.session_state.get("pending_message"))
         st.write("video_topic:", st.session_state.get("video_topic"))
-        st.write("resume_mode:", resume_mode)
+        st.write("video_prompt_area:", (st.session_state.get("video_prompt_area") or "")[:60])
         imgs = {
             k: v for k, v in st.session_state.items()
             if isinstance(k, str) and k.startswith("img_check_")
@@ -280,56 +298,11 @@ user_input = st.chat_input(
 if user_input and st.session_state.phase == "idle":
     st.session_state.pending_message = user_input
 
-    # ── Affirmative shortcut ──────────────────────────────────────────────
-    # If the user replies with a short "yes/sure/please" while a video offer
-    # is pending, skip the LLM call entirely and go straight to video gen.
-    # We check THREE signals in order:
-    #   1. pending_video_offer session flag (set when _wants_video fires)
-    #   2. Last in-memory assistant message (survives if the flag was missed)
-    #   3. Last DB-persisted assistant response (survives hot-reloads)
-    def _last_assistant_offered_video() -> bool:
-        # In-memory messages (fastest, most current)
-        last_asst = next(
-            (m["content"] for m in reversed(st.session_state.get("messages", [])) if m["role"] == "assistant"),
-            "",
-        )
-        if ChatAgent._is_video_offer(last_asst):
-            return True
-        # DB history (survives session resets / hot-reloads)
-        db_history = st.session_state.run_db.get_conversation_history(st.session_state.conversation_id)
-        if db_history:
-            last_db_asst = db_history[-1].get("assistant_response", "")
-            if ChatAgent._is_video_offer(last_db_asst):
-                return True
-        return False
-
-    if ChatAgent._is_affirmative(user_input) and (
-        st.session_state.get("pending_video_offer") or _last_assistant_offered_video()
-    ):
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
-        confirmation = "Let's generate that video! Starting now…"
-        st.session_state.messages.append({"role": "assistant", "content": confirmation})
-        with st.chat_message("assistant"):
-            st.markdown(confirmation)
-        _save_chat_turn(user_input, confirmation)
-        st.session_state.pending_video_offer = False
-        chat_assets = st.session_state.get("chat_assets", {})
-        if chat_assets.get("images"):
-            st.session_state.pending_assets = chat_assets
-            st.session_state.phase = "image_selection"
-        else:
-            st.session_state.phase = "video_request"
-        st.rerun()
-
-    # ── Normal chat processing ────────────────────────────────────────────
-    # Show user message immediately
+    # ── Chat processing ───────────────────────────────────────────────────
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Chat with context from conversation history
     try:
         qwen_client = QwenClient(api_key=QWEN_API_KEY, model=MODEL_CHAT)
         chat_agent = ChatAgent(qwen_client)
@@ -344,14 +317,11 @@ if user_input and st.session_state.phase == "idle":
             )
             answer = answer if isinstance(answer, str) else "".join(answer)
 
-            # answer is the full string returned by st.write_stream.
-            # Also check answer directly: the generator's post-loop code
-            # (which sets result["should_generate_video"]) may not execute if
-            # the streaming client raises before the generator is fully exhausted.
-            should_generate = result.get("should_generate_video", False) or ChatAgent._is_video_offer(answer or "")
-            video_topic = result.get("video_topic", user_input)
-            retrieved = result.get("retrieved_passages", [])
+            # Fallback: use result["answer"] if st.write_stream returned empty
+            if not answer and result.get("answer"):
+                answer = result["answer"]
 
+            retrieved = result.get("retrieved_passages", [])
             if retrieved:
                 with st.expander("Retrieved sources", expanded=False):
                     for p in retrieved:
@@ -363,20 +333,23 @@ if user_input and st.session_state.phase == "idle":
                         else:
                             st.markdown(f"**{source}** — {doc}")
 
-            # Prefer result["answer"] (set by generator) if st.write_stream returned
-            # something empty — can happen when the stream ends with a sentinel that
-            # causes the generator to exit before its post-loop assignments run.
-            if not answer and result.get("answer"):
-                answer = result["answer"]
+            # Show inline NASA thumbnails immediately (also stored on the message)
+            _turn_assets = result.get("chat_assets", {})
+            _turn_imgs = _turn_assets.get("images", [])
+            if _turn_imgs:
+                cols = st.columns(min(len(_turn_imgs), 3))
+                for col, img in zip(cols, _turn_imgs[:3]):
+                    with col:
+                        _t = _fetch_thumb(img.get("thumb_url") or img.get("url", ""))
+                        st.image(_t, caption=img.get("caption", "")[:50], use_container_width=True)
 
-            st.session_state.messages.append({"role": "assistant", "content": answer})
-            st.session_state.chat_description = answer
-            st.session_state.chat_assets = result.get("chat_assets", {})
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": answer,
+                "assets": _turn_assets,
+            })
+            st.session_state.chat_assets = _turn_assets
             _save_chat_turn(user_input, answer)
-
-            if should_generate:
-                st.session_state.video_topic = video_topic
-                st.session_state.pending_video_offer = True
 
     except (AuthenticationError, APIError) as exc:
         st.error(f"**Chat error:** {exc}")
@@ -387,30 +360,12 @@ if user_input and st.session_state.phase == "idle":
         st.session_state.phase = "idle"
         st.stop()
 
-# ── Generate Video offer button (top-level so it survives reruns) ───────────
-# The button is offered after the assistant suggests a video.  It lives outside
-# the `if user_input` block so the click is processed on the next rerun.
-
-if st.session_state.get("pending_video_offer") and st.session_state.phase == "idle":
-    if st.button("🎬 Generate Video", type="primary", key="btn_generate_video_offer"):
-        st.session_state.pending_video_offer = False
-        st.session_state.pending_message = st.session_state.get("video_topic", "")
-        chat_assets = st.session_state.get("chat_assets", {})
-        if chat_assets.get("images"):
-            # Reuse the assets already fetched during the chat turn — skip re-fetch
-            st.session_state.pending_assets = chat_assets
-            st.session_state.phase = "image_selection"
-        else:
-            st.session_state.phase = "video_request"
-        st.rerun()
-
 # ── PHASE: video_request — fetch data for video generation ──────────────────
 
 if st.session_state.phase == "video_request":
     user_message = st.session_state.pending_message
     video_topic = st.session_state.video_topic
-    # Always respect the sidebar toggle for cache reuse; don't force-reuse from offer button.
-    _fetch_resume = resume_mode
+    _fetch_resume = st.session_state.get("resume_mode_toggle", False)
 
     with st.chat_message("assistant"):
         status_area = st.status("Fetching NASA data for video…", expanded=True)
@@ -459,7 +414,7 @@ if st.session_state.phase == "image_selection":
             st.warning("No images were returned by NASA tools. Generating video from text only.")
             if st.button("🎬 Generate Video (text only)", key="btn_generate_video_text_only"):
                 st.session_state.phase = "pipeline"
-                st.session_state.use_cached_pipeline = resume_mode
+                st.session_state.use_cached_pipeline = st.session_state.get("resume_mode_toggle", False)
                 st.rerun()
         else:
             st.markdown(
@@ -523,7 +478,7 @@ if st.session_state.phase == "image_selection":
                 filtered_assets["images"] = selected
                 st.session_state.pending_assets = filtered_assets
                 st.session_state.phase = "pipeline"
-                st.session_state.use_cached_pipeline = resume_mode
+                st.session_state.use_cached_pipeline = st.session_state.get("resume_mode_toggle", False)
                 st.rerun()
 
 # ── PHASE: pipeline — run the rest of the pipeline ──────────────────────────
@@ -531,7 +486,7 @@ if st.session_state.phase == "image_selection":
 if st.session_state.phase == "pipeline":
     user_message      = st.session_state.pending_message
     assets            = st.session_state.pending_assets
-    resume            = st.session_state.get("use_cached_pipeline", resume_mode)
+    resume            = st.session_state.get("use_cached_pipeline", st.session_state.get("resume_mode_toggle", False))
     chat_description  = st.session_state.get("chat_description", "")
     orchestrator      = Orchestrator(qwen_api_key=QWEN_API_KEY, nasa_api_key=NASA_API_KEY)
 
