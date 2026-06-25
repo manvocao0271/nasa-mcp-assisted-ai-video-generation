@@ -21,7 +21,6 @@ _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
 MODEL_T2V = "wan2.7-t2v"  # supports duration; swap to wan2.1-t2v-turbo for faster 5s clips
 MODEL_I2V = "wan2.7-i2v"  # async, input.img, supports duration/resolution/prompt_extend
-# MODEL_I2V = "happyhorse-1.0-i2v"   # sync, input.media[first_frame], duration only
 # MODEL_I2V = "happyhorse-1.5-i2v"   # sync, input.media[first_frame], duration only
 
 # Per-model I2V input format:

@@ -66,6 +66,10 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
+# Transfer staged video prompt before the text_area widget is instantiated
+if "_video_prompt_stage" in st.session_state:
+    st.session_state["video_prompt_area"] = st.session_state.pop("_video_prompt_stage")
+
 # ── Helpers (needed before sidebar renders) ─────────────────────────────────
 
 def _fetch_thumb(url: str) -> bytes | str:
@@ -108,7 +112,7 @@ with st.sidebar:
             st.caption(f"Reference images ({len(_ref_imgs)}):")
             for img in _ref_imgs[:3]:
                 _t = _fetch_thumb(img.get("thumb_url") or img.get("url", ""))
-                st.image(_t, caption=img.get("caption", ""), use_container_width=True)
+                st.image(_t, caption=img.get("caption", ""), width="stretch")
                 st.caption(f"Source: {img.get('source', 'NASA')}")
         else:
             st.info("No reference images yet.")
@@ -118,6 +122,15 @@ with st.sidebar:
             placeholder="Click '\U0001f3ac Use for video' on a chat response, or type a description\u2026",
             height=140,
             key="video_prompt_area",
+        )
+
+        st.radio(
+            "Reference images",
+            ["\U0001f6f8 Fetch NASA images (I2V)", "\U0001f4dd Text only (T2V)"],
+            index=0,
+            horizontal=True,
+            key="video_mode_radio",
+            help="I2V uses a NASA image as the first frame. T2V generates from text alone.",
         )
 
         _cache_exists = (
@@ -133,15 +146,22 @@ with st.sidebar:
 
         _gen_prompt = (st.session_state.get("video_prompt_area") or "").strip()
         if st.button("\U0001f3ac Generate Video", use_container_width=True, disabled=not _gen_prompt):
-            _vids = st.session_state.get("video_assets", {})
+            _use_nasa = "NASA" in (st.session_state.get("video_mode_radio") or "")
+            _cached_imgs = st.session_state.get("video_assets", {}).get("images", [])
             st.session_state.pending_message = _gen_prompt
             st.session_state.video_topic = _gen_prompt
             st.session_state.chat_description = _gen_prompt
-            if _vids.get("images"):
-                st.session_state.pending_assets = _vids
+            if _use_nasa and _cached_imgs:
+                # Images already stored from "Use for video" — skip NASA fetch
+                st.session_state.pending_assets = st.session_state.video_assets
                 st.session_state.phase = "image_selection"
-            else:
+            elif _use_nasa:
+                # No cached images — fetch from NASA
                 st.session_state.phase = "video_request"
+            else:
+                # Text-only: skip straight to pipeline with no reference images
+                st.session_state.pending_assets = {}
+                st.session_state.phase = "pipeline"
             st.rerun()
 
     with tab_history:
@@ -170,6 +190,18 @@ for idx, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         if message["role"] == "assistant":
+            # Persist retrieved sources across reruns
+            msg_retrieved = message.get("retrieved_passages", [])
+            if msg_retrieved:
+                with st.expander("Retrieved sources", expanded=False):
+                    for p in msg_retrieved:
+                        snippet = (p.get("snippet") or "").strip()
+                        source = p.get("source") or "source"
+                        doc = p.get("doc_id") or ""
+                        if snippet:
+                            st.markdown(f"**{source}** — {snippet}  \n_{doc}_")
+                        else:
+                            st.markdown(f"**{source}** — {doc}")
             # Show inline NASA thumbnails when this message has associated assets
             msg_imgs = message.get("assets", {}).get("images", [])
             if msg_imgs:
@@ -177,10 +209,10 @@ for idx, message in enumerate(st.session_state.messages):
                 for col, img in zip(cols, msg_imgs[:3]):
                     with col:
                         _t = _fetch_thumb(img.get("thumb_url") or img.get("url", ""))
-                        st.image(_t, caption=img.get("caption", "")[:50], use_container_width=True)
+                        st.image(_t, caption=img.get("caption", "")[:50], width="stretch")
             # Button to copy this response + its images to the sidebar video generator
             if st.button("\U0001f3ac Use for video", key=f"use_for_video_{idx}"):
-                st.session_state["video_prompt_area"] = message["content"]
+                st.session_state["_video_prompt_stage"] = message["content"]
                 st.session_state.video_assets = message.get("assets", {})
                 st.rerun()
 
@@ -341,15 +373,25 @@ if user_input and st.session_state.phase == "idle":
                 for col, img in zip(cols, _turn_imgs[:3]):
                     with col:
                         _t = _fetch_thumb(img.get("thumb_url") or img.get("url", ""))
-                        st.image(_t, caption=img.get("caption", "")[:50], use_container_width=True)
+                        st.image(_t, caption=img.get("caption", "")[:50], width="stretch")
 
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": answer,
                 "assets": _turn_assets,
+                "retrieved_passages": retrieved,
             })
             st.session_state.chat_assets = _turn_assets
             _save_chat_turn(user_input, answer)
+
+            # Render the button inline so it appears immediately (replay loop
+            # only runs on the next rerun, so without this the button is missing
+            # until something else triggers a rerun).
+            _live_idx = len(st.session_state.messages) - 1
+            if st.button("\U0001f3ac Use for video", key=f"use_for_video_{_live_idx}"):
+                st.session_state["_video_prompt_stage"] = answer
+                st.session_state.video_assets = _turn_assets
+                st.rerun()
 
     except (AuthenticationError, APIError) as exc:
         st.error(f"**Chat error:** {exc}")
@@ -428,7 +470,7 @@ if st.session_state.phase == "image_selection":
             for i, img in enumerate(images):
                 with cols[i % n_cols]:
                     thumb = _fetch_thumb(img.get("thumb_url") or img["url"])
-                    st.image(thumb, use_container_width=True)
+                    st.image(thumb, width="stretch")
                     caption = img.get("caption") or img.get("title") or ""
                     if caption:
                         st.caption(caption[:80])
