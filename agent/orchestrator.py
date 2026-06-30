@@ -11,6 +11,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Generator
 
@@ -37,11 +38,18 @@ def _script_cache_valid(script: dict, assets: dict) -> bool:
 class Orchestrator:
     """Token-budget-aware pipeline driver."""
 
-    def __init__(self, qwen_api_key: str, nasa_api_key: str, token_budget: int = 50_000) -> None:
+    def __init__(
+        self,
+        qwen_api_key: str,
+        nasa_api_key: str,
+        token_budget: int = 50_000,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
         self.qwen_api_key = qwen_api_key
         self.nasa_api_key = nasa_api_key
         self.token_budget = token_budget
         self.tokens_used = 0
+        self.cancel_event = cancel_event
 
         OUTPUT_DIR.mkdir(exist_ok=True)
         (OUTPUT_DIR / "clips").mkdir(exist_ok=True)
@@ -137,7 +145,7 @@ class Orchestrator:
         yield {"stage": "video", "status": "running",
                "detail": f"Generating clip 1/{total}…" if total else "No scenes to render"}
 
-        video_gen = VideoGen(self.qwen_api_key)
+        video_gen = VideoGen(self.qwen_api_key, cancel_event=self.cancel_event)
         clips: list[Path] = []
 
         for i, entry in enumerate(storyboard):

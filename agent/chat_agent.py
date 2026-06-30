@@ -16,7 +16,7 @@ from agent.retriever import Retriever
 
 def _build_system_prompt() -> str:
     today = date.today().strftime("%B %d, %Y")
-    return f"""You are an expert astronomy guide and universe educator backed by live NASA data.
+    return f"""You are WILL.AI (What Infinity Looks Like AI), an expert astronomy guide and universe educator backed by live NASA data.
 Today's date is {today}.
 
 When NASA data is provided below in a "Retrieved NASA data" block, treat it as ground truth
@@ -25,6 +25,7 @@ and cite specific facts, titles, dates, or descriptions from it in your answer.
 When answering:
 1. Explain concepts clearly and concisely
 2. Use any provided NASA data as grounding — prefer it over your training knowledge for current events
+3. If the system indicates NASA search returned no results, say so clearly.
 
 Do not make up APOD titles, dates, or image descriptions — only state what is in the provided data.
 """
@@ -50,6 +51,14 @@ _LIVE_DATA_PATTERNS = (
     r"\bearth (today|yesterday|right now|from space)\b",
     r"\bwhat does .+ look like (today|right now|currently)\b",
     r"\bshow me .+nasa\b",
+    # General visual / image request patterns
+    r"\bshow me (a |an |some )?(pictures?|photos?|images?)\b",
+    r"\bshow me what .+ looks? like\b",
+    r"\bwhat does .+ look like\b",
+    r"\b(pictures?|photos?|images?) of\b",
+    r"\b(find|get|fetch|retrieve|search for) .*(pictures?|photos?|images?)\b",
+    r"\bnasa (pictures?|photos?|images?|resources?)\b",
+    r"\bcan you (show|find|fetch|get|retrieve).*(picture|photo|image)\b",
 )
 
 
@@ -115,6 +124,16 @@ class ChatAgent:
                 if passages:
                     grounding = retriever.format_for_prompt(passages)
                     messages.append({"role": "system", "content": grounding})
+                else:
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "A NASA image/data search was performed for this query but "
+                            "returned no results. Tell the user that NASA's public databases "
+                            "did not return images matching their request. Do not invent "
+                            "or describe images you do not have."
+                        ),
+                    })
             except Exception:
                 passages = []
                 chat_assets = {}
@@ -186,6 +205,16 @@ class ChatAgent:
                 if passages:
                     grounding = retriever.format_for_prompt(passages)
                     messages.append({"role": "system", "content": grounding})
+                else:
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "A NASA image/data search was performed for this query but "
+                            "returned no results. Tell the user that NASA's public databases "
+                            "did not return images matching their request. Do not invent "
+                            "or describe images you do not have."
+                        ),
+                    })
             except Exception:
                 passages = []
                 chat_assets = {}

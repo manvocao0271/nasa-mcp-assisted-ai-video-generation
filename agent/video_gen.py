@@ -6,6 +6,7 @@ For each storyboard entry, submits an async job, polls until completion, and sav
 from __future__ import annotations
 
 import base64
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -46,10 +47,16 @@ class VideoGen:
 
     MAX_DURATION = 10
 
-    def __init__(self, qwen_api_key: str, poll_interval: float = 10.0) -> None:
+    def __init__(
+        self,
+        qwen_api_key: str,
+        poll_interval: float = 10.0,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
         self.qwen_api_key = qwen_api_key
         self.poll_interval = poll_interval
         self.warnings: list[str] = []  # populated when I2V falls back to T2V
+        self.cancel_event = cancel_event
         self._headers = {
             "Authorization": f"Bearer {qwen_api_key}",
             "Content-Type": "application/json",
@@ -313,7 +320,12 @@ class VideoGen:
             elif status in ("FAILED", "CANCELED"):
                 raise RuntimeError(f"Video generation {status}: {output}")
 
-            time.sleep(self.poll_interval)
+            # Interruptible wait: wakes immediately if cancel_event is set
+            if self.cancel_event:
+                if self.cancel_event.wait(self.poll_interval):
+                    raise InterruptedError(f"Video generation cancelled (task={task_id})")
+            else:
+                time.sleep(self.poll_interval)
 
         raise TimeoutError(f"Video generation timed out after {MAX_POLL_SECONDS}s (task={task_id})")
 

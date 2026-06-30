@@ -1,1 +1,1 @@
-"""Multi-agent pipeline for Pale Blue Dot video generation."""
+"""Multi-agent pipeline for WILL.AI video generation."""

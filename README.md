@@ -1,5 +1,5 @@
 
-# Pale Blue Dot — AI Universe Video Generator
+# WILL.AI — What Infinity Looks Like AI
 
 > A multi-agent system that turns real NASA data into cinematic short films about the universe. Powered by Qwen models on Qwen Cloud, grounded by NASA's public APIs via MCP.
 
@@ -11,14 +11,14 @@
 
 ## What it does
 
-**Pale Blue Dot** is an autonomous AI agent pipeline with a Streamlit chat interface. Type a natural language request — *"reconstruct a windy day on Mars using terrain and weather data"* — and the system builds a short cinematic film grounded entirely in real NASA data.
+**WILL.AI** (What Infinity Looks Like AI) is an autonomous AI agent pipeline with a Streamlit chat interface. Type a natural language request — *"reconstruct a windy day on Mars using terrain and weather data"* — and the system builds a short cinematic film grounded entirely in real NASA data.
 
-The Streamlit UI feeds your message to an Orchestrator agent (Qwen on Qwen Cloud) which decides which NASA tools to call, lets you pick 1–3 reference images, writes a short caption per image, generates a visual prompt per scene, and produces one silent video clip per selected frame via Wan / HappyHorse — all streamed back to your browser as it happens.
+The Streamlit UI is a **split-screen workbench**. On the left, chat with **WILL.AI** — the astronomy bot pulls live NASA data to ground its answers and shows retrieved images inline. On the right, a **Video Studio** panel lets you queue any of those NASA images with a click, type a video prompt, and run the full pipeline (ScriptAgent → StoryboardAgent → Wan 2.7) directly in the panel. One silent clip per queued image streams back to your browser as it's generated.
 
-1. **Chat** — type any astronomy question or video request in natural language
-2. **Watch the pipeline run** — each agent step streams status updates to the UI in real time
-3. **Get video(s)** — one silent clip per selected NASA image plays inline
-4. **Inspect the sources** — NASA data used (images, orbital data, weather, exoplanet parameters) shown alongside
+1. **Chat** — ask any astronomy question; the bot retrieves live NASA data and shows images inline
+2. **Queue** — click "📌 Add to queue" on any retrieved image to send it to the Video Studio
+3. **Generate** — type a prompt in the Video Studio, click Generate; each pipeline step streams its status
+4. **Watch** — one silent clip per queued NASA image plays inline in the right panel
 
 Every frame is anchored to something real. No hallucinated planets, no invented missions — just terrain, weather, orbital context, and event data assembled into a scene.
 
@@ -31,10 +31,10 @@ Music by Kyle Dixon & Michael Stein
 ## System architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────────────────┤
 │                     Streamlit Web UI                                │
-│  chat input → pipeline status stream → inline video player          │
-│  + NASA source panel (images, data used)                            │
+│  LEFT: chat input → NASA images with "📌 Add to queue" buttons       │
+│  RIGHT: Video Studio — queue → prompt → pipeline → clips            │
 └────────────────────────┬────────────────────────────────────────────┘
                          │ user message
 ┌────────────────────────▼────────────────────────────────────────────┐
@@ -62,21 +62,18 @@ Streamlit UI   → runs locally (dev) or Alibaba Cloud ECS (production)
 ```
 
 ## Pipeline Flowchart
+```mermaid
 flowchart TD
-    A[User types request in Streamlit chat] --> B[Phase 1: Data fetch]
-    B --> C[Phase 2: Image picker]
-    C --> D[Phase 3: Script → Storyboard → Video]
-    D --> E[Clip plays inline in browser]
-
-    B --> B1[DataAgent + NASA MCP tools]
-    B1 --> B2[output/assets.json]
-
-    C --> C1[User selects NASA reference images]
-
-    D --> D1[ScriptAgent → script.json]
-    D1 --> D2[StoryboardAgent → storyboard.json]
-    D2 --> D3[VideoGen → output/clips/scene_N.mp4]
-    D3 --> D4[episode_manifest.json]
+    A[User types question in left panel chat] --> B[ChatAgent answers with live NASA data]
+    B --> C[NASA images shown inline with Add-to-queue button]
+    C --> D{User clicks Add to queue}
+    D --> E[Image added to Video Studio queue]
+    E --> F[User types video prompt and clicks Generate]
+    F --> G[ScriptAgent → script.json]
+    G --> H[StoryboardAgent → storyboard.json]
+    H --> I[VideoGen → clips/scene_N.mp4]
+    I --> J[Clips play inline in right panel]
+```
 
 
 ## NASA MCP server — data backbone
@@ -178,7 +175,7 @@ uv run pytest -m live                  # live NASA API round-trips (needs NASA_A
 ## Project structure
 
 ```
-app.py                  # Streamlit UI: chat, image picker, pipeline status, inline video
+app.py                  # Streamlit UI (wide layout): left panel = chat + queue buttons; right panel = Video Studio (queue, prompt, pipeline, clips)
 agent/                  # Multi-agent pipeline
   orchestrator.py       # Token-budget-aware pipeline driver
   data_agent.py         # Calls nasa-mcp tools → output/assets.json
@@ -288,7 +285,7 @@ This project is competing in **Track 2: AI Showrunner**, which requires an agent
 
 ### Concept
 
-**"Pale Blue Dot"** — a series of short (~60-second) silent cinematic space documentaries. Each episode is seeded by a real NASA data event (an asteroid close approach, an APOD, a Mars sol's worth of rover photos, a Mars weather report, a solar storm, or a natural event on Earth) and rendered as a cinematic short using Wan/HappyHorse. The Qwen model orchestrates the entire pipeline; NASA MCP tools provide the factual grounding.
+**"WILL.AI"** — a series of short (~60-second) silent cinematic space documentaries. Each episode is seeded by a real NASA data event (an asteroid close approach, an APOD, a Mars sol's worth of rover photos, a Mars weather report, a solar storm, or a natural event on Earth) and rendered as a cinematic short using Wan/HappyHorse. The Qwen model orchestrates the entire pipeline; NASA MCP tools provide the factual grounding.
 
 ### Qwen Cloud integration points
 
