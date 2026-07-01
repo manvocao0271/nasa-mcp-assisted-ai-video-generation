@@ -16,7 +16,7 @@ from agent.retriever import Retriever
 
 def _build_system_prompt() -> str:
     today = date.today().strftime("%B %d, %Y")
-    return f"""You are an expert astronomy guide and universe educator backed by live NASA data.
+    return f"""You are WILL.AI (What Infinity Looks Like AI), an expert astronomy guide and universe educator backed by live NASA data.
 Today's date is {today}.
 
 When NASA data is provided below in a "Retrieved NASA data" block, treat it as ground truth
@@ -25,7 +25,7 @@ and cite specific facts, titles, dates, or descriptions from it in your answer.
 When answering:
 1. Explain concepts clearly and concisely
 2. Use any provided NASA data as grounding — prefer it over your training knowledge for current events
-3. If a visual would help, you may offer: "Would you like me to generate a short video showing this?"
+3. If the system indicates NASA search returned no results, say so clearly.
 
 Do not make up APOD titles, dates, or image descriptions — only state what is in the provided data.
 """
@@ -51,6 +51,14 @@ _LIVE_DATA_PATTERNS = (
     r"\bearth (today|yesterday|right now|from space)\b",
     r"\bwhat does .+ look like (today|right now|currently)\b",
     r"\bshow me .+nasa\b",
+    # General visual / image request patterns
+    r"\bshow me (a |an |some )?(pictures?|photos?|images?)\b",
+    r"\bshow me what .+ looks? like\b",
+    r"\bwhat does .+ look like\b",
+    r"\b(pictures?|photos?|images?) of\b",
+    r"\b(find|get|fetch|retrieve|search for) .*(pictures?|photos?|images?)\b",
+    r"\bnasa (pictures?|photos?|images?|resources?)\b",
+    r"\bcan you (show|find|fetch|get|retrieve).*(picture|photo|image)\b",
 )
 
 
@@ -80,35 +88,7 @@ def _assets_from_urls(urls: list[str], query: str) -> dict:
     return {"query": query, "tools_called": [], "images": images, "data": {}}
 
 
-# User must explicitly ask for video — not broad phrases like "show me" alone.
-_USER_VIDEO_PATTERNS = (
-    r"\bgenerate\s+(a\s+)?video\b",
-    r"\bmake\s+(a\s+)?video\b",
-    r"\bcreate\s+(a\s+)?video\b",
-    r"\bproduce\s+(a\s+)?video\b",
-    r"\bshort\s+video\b",
-    r"\bshort\s+film\b",
-    r"\bvideo\s+(about|of|showing|on)\b",
-    r"\bfilm\s+(about|of|showing|on)\b",
-    r"\banimate\b",
-    r"\bwhat\s+it'?s?\s+like\s+(on|at|in)\b.+\b(video|film|clip)\b",
-    r"\bshow\s+me.+\b(video|film|clip)\b",
-)
 
-_ASSISTANT_VIDEO_OFFERS = (
-    "would you like me to generate a short video",
-    "would you like me to generate a video",
-    "i can generate a short video",
-    "i can generate a video showing",
-    "generate a short video showing",
-)
-
-# Short affirmative replies that confirm the assistant's video offer.
-_AFFIRMATIVE_PATTERNS = (
-    r"^\s*(yes|yeah|yep|yup|sure|ok|okay|please|go ahead|do\s+it|absolutely|definitely|of\s+course|sounds\s+good|let'?s?\s+do\s+it|go\s+for\s+it)\s*[.!]?\s*$",
-    r"^\s*yes[,\s]+please\s*[.!]?\s*$",
-    r"^\s*please\s+(do|generate|make|create)\s+(it|that|a\s+video)\s*[.!]?\s*$",
-)
 
 
 class ChatAgent:
@@ -144,6 +124,16 @@ class ChatAgent:
                 if passages:
                     grounding = retriever.format_for_prompt(passages)
                     messages.append({"role": "system", "content": grounding})
+                else:
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "A NASA image/data search was performed for this query but "
+                            "returned no results. Tell the user that NASA's public databases "
+                            "did not return images matching their request. Do not invent "
+                            "or describe images you do not have."
+                        ),
+                    })
             except Exception:
                 passages = []
                 chat_assets = {}
@@ -160,54 +150,11 @@ class ChatAgent:
         response = self.client.chat(messages=messages)
         answer = response.choices[0].message.content or ""
 
-        should_generate = self._wants_video(user_message, answer)
-        video_topic = user_message[:200] if should_generate else None
-
         return {
             "answer": answer,
-            "should_generate_video": should_generate,
-            "video_topic": video_topic,
             "retrieved_passages": passages,
             "chat_assets": chat_assets,
         }
-
-    @staticmethod
-    def _extract_video_offer(answer: str) -> str | None:
-        """Extract the assistant's video offer to use as search topic.
-
-        Looks for patterns like:
-          - "visual journey through the Milky Way"
-          - "barred spiral galaxy"
-        And returns the first found, otherwise None.
-        """
-        answer_lower = (answer or "").lower()
-        phrases = [
-            "visual journey through the milky way",
-            "barred spiral galaxy",
-            "journey through space",
-            "solar system",
-            "exoplanet",
-            "asteroid",
-        ]
-        for phrase in phrases:
-            if phrase in answer_lower:
-                return phrase[:120]  # Return the phrase itself, not the full answer
-        return None
-
-    @staticmethod
-    def _is_affirmative(text: str) -> bool:
-        """Return True if *text* is a short affirmative reply."""
-        return any(re.search(p, text.strip(), re.IGNORECASE) for p in _AFFIRMATIVE_PATTERNS)
-
-    @staticmethod
-    def _wants_video(user_message: str, answer: str) -> bool:
-        user_lower = (user_message or "").lower()
-        answer_lower = (answer or "").lower()
-
-        if any(re.search(p, user_lower) for p in _USER_VIDEO_PATTERNS):
-            return True
-
-        return any(phrase in answer_lower for phrase in _ASSISTANT_VIDEO_OFFERS)
 
     def answer_stream_internal(
         self,
@@ -226,32 +173,14 @@ class ChatAgent:
 
         After ``st.write_stream`` returns, *result* contains:
         - ``answer``               – full response string
-        - ``should_generate_video`` – bool
-        - ``video_topic``          – str
         - ``retrieved_passages``   – list[dict]
+        - ``chat_assets``          – NASA images/data fetched for this turn
 
         Thinking tokens enclosed in ``<think>…</think>`` are filtered out so
         they never reach the UI, even when a reasoning-capable model is used.
         """
         if conversation_history is None:
             conversation_history = []
-
-        # ── Affirmative shortcut ──────────────────────────────────────────────
-        # If the user is just saying "yes/sure/please" in response to the
-        # assistant's previous video offer, skip the LLM call entirely and
-        # trigger video generation immediately.
-        last_run = conversation_history[-1] if conversation_history else None
-        if last_run and self._is_affirmative(user_message):
-            last_assistant = last_run.get("assistant_response", "")
-            if any(phrase in last_assistant.lower() for phrase in _ASSISTANT_VIDEO_OFFERS):
-                topic = last_run.get("user_message", user_message)[:200]
-                msg = "Let's generate that video! Starting now…"
-                result["answer"] = msg
-                result["should_generate_video"] = True
-                result["video_topic"] = topic
-                result["retrieved_passages"] = []
-                yield msg
-                return
 
         messages = [{"role": "system", "content": _build_system_prompt()}]
 
@@ -276,6 +205,16 @@ class ChatAgent:
                 if passages:
                     grounding = retriever.format_for_prompt(passages)
                     messages.append({"role": "system", "content": grounding})
+                else:
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "A NASA image/data search was performed for this query but "
+                            "returned no results. Tell the user that NASA's public databases "
+                            "did not return images matching their request. Do not invent "
+                            "or describe images you do not have."
+                        ),
+                    })
             except Exception:
                 passages = []
                 chat_assets = {}
@@ -323,12 +262,7 @@ class ChatAgent:
                         text = text[start + len("<think>"):]
 
         result["answer"] = full_text
-        result["should_generate_video"] = self._wants_video(user_message, full_text)
-        # For video topic, prefer the assistant's offer if present, else use user query.
-        video_topic = self._extract_video_offer(full_text) or user_message[:200]
-        result["video_topic"] = video_topic
         result["retrieved_passages"] = passages
-        result["chat_assets"] = chat_assets
         result["chat_assets"] = chat_assets
 
     def chat_with_streaming(

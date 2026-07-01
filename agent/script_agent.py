@@ -81,7 +81,7 @@ class ScriptAgent:
         content: list = []
 
         for i, img in enumerate(images, start=1):
-            url = img.get("url", "")
+            url = img.get("thumb_url") or img.get("url", "")
             if not url:
                 continue
             data_uri = self._fetch_image_as_data_uri(url)
@@ -167,7 +167,7 @@ class ScriptAgent:
 
         for i in range(n):
             src = scenes[i] if i < len(scenes) else {}
-            ref_url = selected_urls[i] if i < len(selected_urls) else ""
+            ref_url = (images[i].get("thumb_url") or selected_urls[i]) if i < len(selected_urls) else ""
             normalized.append({
                 "scene": i + 1,
                 "caption": src.get("caption", ""),

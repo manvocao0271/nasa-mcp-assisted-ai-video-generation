@@ -93,25 +93,31 @@ class DataAgent:
         self.nasa_api_key = nasa_api_key
         self.qwen_api_key = qwen_api_key
 
-    def run(self, user_message: str) -> dict:
+    def run(self, user_message: str, context: str = "") -> dict:
         """Fetch NASA data relevant to the user message.
+
+        Args:
+            user_message: The primary search topic (e.g. "WASP-76b ultra-hot Jupiter").
+            context: Optional conversation context (e.g. the assistant's prior
+                answer) that helps the tool-calling LLM pick the right tools and
+                queries. Not stored in assets.json.
 
         Runs the async MCP loop synchronously and writes output/assets.json.
         Returns the assets dict.
         """
-        assets = asyncio.run(self._fetch_assets(user_message))
+        assets = asyncio.run(self._fetch_assets(user_message, context=context))
         (OUTPUT_DIR / "assets.json").write_text(json.dumps(assets, indent=2))
         return assets
 
-    def fetch(self, user_message: str) -> dict:
+    def fetch(self, user_message: str, context: str = "") -> dict:
         """Fetch NASA data without writing to disk.
 
         Safe to call from ChatAgent during conversation without clobbering
         the pipeline's assets.json.
         """
-        return asyncio.run(self._fetch_assets(user_message))
+        return asyncio.run(self._fetch_assets(user_message, context=context))
 
-    async def _fetch_assets(self, user_message: str) -> dict:
+    async def _fetch_assets(self, user_message: str, context: str = "") -> dict:
         """Async: spin up the MCP server and run the tool-calling loop."""
 
         server_params = StdioServerParameters(
@@ -143,9 +149,18 @@ class DataAgent:
                 ]
 
                 client = QwenClient(self.qwen_api_key, model=MODEL_PLUS)
+                # Enrich the user message with conversation context so the
+                # tool-calling LLM searches for the specific subject discussed
+                # (e.g. "WASP-76b" rather than "show me an interesting exoplanet").
+                enriched_message = user_message
+                if context:
+                    enriched_message = (
+                        f"{user_message}\n\n"
+                        f"Additional context from conversation:\n{context[:600]}"
+                    )
                 messages: list[dict] = [
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
+                    {"role": "user", "content": enriched_message},
                 ]
 
                 tools_called: list[str] = []

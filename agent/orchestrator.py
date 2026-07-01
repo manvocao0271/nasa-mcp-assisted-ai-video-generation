@@ -11,6 +11,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Generator
 
@@ -37,11 +38,18 @@ def _script_cache_valid(script: dict, assets: dict) -> bool:
 class Orchestrator:
     """Token-budget-aware pipeline driver."""
 
-    def __init__(self, qwen_api_key: str, nasa_api_key: str, token_budget: int = 50_000) -> None:
+    def __init__(
+        self,
+        qwen_api_key: str,
+        nasa_api_key: str,
+        token_budget: int = 50_000,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
         self.qwen_api_key = qwen_api_key
         self.nasa_api_key = nasa_api_key
         self.token_budget = token_budget
         self.tokens_used = 0
+        self.cancel_event = cancel_event
 
         OUTPUT_DIR.mkdir(exist_ok=True)
         (OUTPUT_DIR / "clips").mkdir(exist_ok=True)
@@ -63,7 +71,16 @@ class Orchestrator:
             return cached_query == user_message.lower()
         return any(w in cached_query for w in topic_words)
 
-    def fetch_data(self, user_message: str, resume: bool = False) -> Generator[dict, None, None]:
+    def fetch_data(self, user_message: str, resume: bool = False, context: str = "") -> Generator[dict, None, None]:
+        """Fetch NASA assets for *user_message*.
+
+        Args:
+            user_message: The primary search topic (ideally already distilled to
+                the specific subject, e.g. \"WASP-76b ultra-hot Jupiter\").
+            resume: If True, reuse a cached assets.json when the topic matches.
+            context: Optional extra text (e.g. the assistant's prior answer) that
+                helps the DataAgent pick the right NASA tools and search terms.
+        """
         assets_path = OUTPUT_DIR / "assets.json"
         if resume and assets_path.exists():
             assets = json.loads(assets_path.read_text())
@@ -79,7 +96,7 @@ class Orchestrator:
             fetch_detail = "Fetching NASA data…"
 
         yield {"stage": "data", "status": "running", "detail": fetch_detail}
-        assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message)
+        assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message, context=context)
         yield {"stage": "data", "status": "done",
                "detail": f"{len(assets.get('images', []))} images fetched",
                "assets": assets}
@@ -128,7 +145,7 @@ class Orchestrator:
         yield {"stage": "video", "status": "running",
                "detail": f"Generating clip 1/{total}…" if total else "No scenes to render"}
 
-        video_gen = VideoGen(self.qwen_api_key)
+        video_gen = VideoGen(self.qwen_api_key, cancel_event=self.cancel_event)
         clips: list[Path] = []
 
         for i, entry in enumerate(storyboard):

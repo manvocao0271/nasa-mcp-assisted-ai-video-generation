@@ -6,6 +6,7 @@ For each storyboard entry, submits an async job, polls until completion, and sav
 from __future__ import annotations
 
 import base64
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -21,7 +22,6 @@ _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
 MODEL_T2V = "wan2.7-t2v"  # supports duration; swap to wan2.1-t2v-turbo for faster 5s clips
 MODEL_I2V = "wan2.7-i2v"  # async, input.img, supports duration/resolution/prompt_extend
-# MODEL_I2V = "happyhorse-1.0-i2v"   # sync, input.media[first_frame], duration only
 # MODEL_I2V = "happyhorse-1.5-i2v"   # sync, input.media[first_frame], duration only
 
 # Per-model I2V input format:
@@ -47,10 +47,16 @@ class VideoGen:
 
     MAX_DURATION = 10
 
-    def __init__(self, qwen_api_key: str, poll_interval: float = 10.0) -> None:
+    def __init__(
+        self,
+        qwen_api_key: str,
+        poll_interval: float = 10.0,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
         self.qwen_api_key = qwen_api_key
         self.poll_interval = poll_interval
         self.warnings: list[str] = []  # populated when I2V falls back to T2V
+        self.cancel_event = cancel_event
         self._headers = {
             "Authorization": f"Bearer {qwen_api_key}",
             "Content-Type": "application/json",
@@ -106,9 +112,17 @@ class VideoGen:
         ``~medium.jpg`` variant to stay within API payload limits.
         """
         _SUPPORTED = ("image/jpeg", "image/png", "image/webp")
-        candidates = [url]
+        # NASA Image Library only allows ~thumb.jpg from external servers;
+        # ~large.jpg and ~medium.jpg return 403.  Try the smallest accessible
+        # variant first, then progressively larger, then the original URL.
+        candidates: list[str] = []
         if "~large." in url:
-            candidates.insert(0, url.replace("~large.", "~medium."))
+            candidates.append(url.replace("~large.", "~thumb."))
+            candidates.append(url.replace("~large.", "~medium."))
+        elif "~orig." in url:
+            candidates.append(url.replace("~orig.", "~thumb."))
+            candidates.append(url.replace("~orig.", "~medium."))
+        candidates.append(url)
         for candidate in candidates:
             try:
                 with httpx.Client(timeout=30, follow_redirects=True) as client:
@@ -200,6 +214,7 @@ class VideoGen:
         _submit_timeout = httpx.Timeout(connect=15, read=60, write=300, pool=15)
         with httpx.Client(timeout=_submit_timeout) as client:
             if media_url:
+                print(f"[VideoGen] I2V mode — reference image resolved ({len(media_url)} chars data URI)")
                 resp = client.post(_SUBMIT_URL, json=_i2v_body(MODEL_I2V), headers=self._headers)
                 if not resp.is_success:
                     err = f"{resp.status_code}: {resp.text[:200]}"
@@ -212,8 +227,10 @@ class VideoGen:
                         self.warnings.append(
                             f"⚠️ I2V submission failed ({err}). Falling back to T2V."
                         )
+                    print(f"[VideoGen] I2V failed ({err}), falling back to T2V")
                     resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
             else:
+                print(f"[VideoGen] T2V mode — no reference image (ref_image_url empty or fetch failed)")
                 resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
 
         if not resp.is_success:
@@ -303,7 +320,12 @@ class VideoGen:
             elif status in ("FAILED", "CANCELED"):
                 raise RuntimeError(f"Video generation {status}: {output}")
 
-            time.sleep(self.poll_interval)
+            # Interruptible wait: wakes immediately if cancel_event is set
+            if self.cancel_event:
+                if self.cancel_event.wait(self.poll_interval):
+                    raise InterruptedError(f"Video generation cancelled (task={task_id})")
+            else:
+                time.sleep(self.poll_interval)
 
         raise TimeoutError(f"Video generation timed out after {MAX_POLL_SECONDS}s (task={task_id})")
 
