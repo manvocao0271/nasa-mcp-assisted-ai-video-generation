@@ -13,8 +13,8 @@ from typing import Callable
 
 import httpx
 
-OUTPUT_DIR = Path("output")
-CLIPS_DIR = OUTPUT_DIR / "clips"
+_DEFAULT_OUTPUT_DIR = Path("output")
+_DEFAULT_CLIPS_DIR = _DEFAULT_OUTPUT_DIR / "clips"
 
 _API_BASE = "https://dashscope-intl.aliyuncs.com/api/v1"
 _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
@@ -52,11 +52,14 @@ class VideoGen:
         qwen_api_key: str,
         poll_interval: float = 10.0,
         cancel_event: threading.Event | None = None,
+        output_dir: Path | None = None,
     ) -> None:
         self.qwen_api_key = qwen_api_key
         self.poll_interval = poll_interval
         self.warnings: list[str] = []  # populated when I2V falls back to T2V
         self.cancel_event = cancel_event
+        _out = output_dir if output_dir is not None else _DEFAULT_OUTPUT_DIR
+        self.clips_dir = _out / "clips"
         self._headers = {
             "Authorization": f"Bearer {qwen_api_key}",
             "Content-Type": "application/json",
@@ -69,7 +72,7 @@ class VideoGen:
         on_clip_start: Callable[[int, int], None] | None = None,
     ) -> list[Path]:
         """Generate one clip per storyboard entry (up to MAX_SCENES)."""
-        CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+        self.clips_dir.mkdir(parents=True, exist_ok=True)
         clips: list[Path] = []
         entries = storyboard[:MAX_SCENES]
         total = len(entries)
@@ -95,12 +98,11 @@ class VideoGen:
         """Generate a single clip from one storyboard entry."""
         return self.run([entry])[0]
 
-    @staticmethod
-    def _unique_clip_path(scene: int) -> Path:
-        candidate = CLIPS_DIR / f"scene_{scene}.mp4"
+    def _unique_clip_path(self, scene: int) -> Path:
+        candidate = self.clips_dir / f"scene_{scene}.mp4"
         counter = 1
         while candidate.exists():
-            candidate = CLIPS_DIR / f"scene_{scene}_{counter}.mp4"
+            candidate = self.clips_dir / f"scene_{scene}_{counter}.mp4"
             counter += 1
         return candidate
 

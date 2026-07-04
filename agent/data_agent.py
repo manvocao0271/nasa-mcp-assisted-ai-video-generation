@@ -46,7 +46,7 @@ if sys.platform == "win32":
 
     _pe._ProactorBasePipeTransport._call_connection_lost = _patched_call_connection_lost  # type: ignore[attr-defined]
 
-OUTPUT_DIR = Path("output")
+_DEFAULT_OUTPUT_DIR = Path("output")
 MAX_TOOL_ITERATIONS = 10
 
 SYSTEM_PROMPT = """
@@ -89,9 +89,10 @@ def _unwrap_args_schema(schema: dict) -> dict:
 class DataAgent:
     """Calls NASA MCP tools via an agentic Qwen loop and collects raw assets."""
 
-    def __init__(self, nasa_api_key: str, qwen_api_key: str) -> None:
+    def __init__(self, nasa_api_key: str, qwen_api_key: str, output_dir: Path | None = None) -> None:
         self.nasa_api_key = nasa_api_key
         self.qwen_api_key = qwen_api_key
+        self.output_dir = output_dir if output_dir is not None else _DEFAULT_OUTPUT_DIR
 
     def run(self, user_message: str, context: str = "") -> dict:
         """Fetch NASA data relevant to the user message.
@@ -106,7 +107,8 @@ class DataAgent:
         Returns the assets dict.
         """
         assets = asyncio.run(self._fetch_assets(user_message, context=context))
-        (OUTPUT_DIR / "assets.json").write_text(json.dumps(assets, indent=2))
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        (self.output_dir / "assets.json").write_text(json.dumps(assets, indent=2))
         return assets
 
     def fetch(self, user_message: str, context: str = "") -> dict:
