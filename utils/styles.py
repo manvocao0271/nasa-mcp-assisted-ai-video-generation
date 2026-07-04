@@ -275,6 +275,90 @@ hr {
     color: rgba(255,255,255,0.22);
     margin-top: 0.4rem;
 }
+
+/* ── Video Studio side panel ─────────────────────────────────────────────────── */
+.studio-title {
+    font-size: 0.92rem !important;
+    font-weight: 700 !important;
+    color: #ececec !important;
+    margin: 0 0 2px !important;
+    padding: 4px 0 2px !important;
+}
+.studio-section {
+    font-size: 0.65rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.07em !important;
+    text-transform: uppercase !important;
+    color: rgba(255,255,255,0.3) !important;
+    margin-bottom: 6px !important;
+}
+.studio-optional {
+    font-weight: 400 !important;
+    font-size: 0.63rem !important;
+    color: rgba(255,255,255,0.25) !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+}
+.studio-empty {
+    font-size: 0.8rem !important;
+    color: rgba(255,255,255,0.28) !important;
+    line-height: 1.55 !important;
+    margin: 4px 0 !important;
+}
+hr.studio-hr {
+    margin: 10px 0 !important;
+    border-top: 1px solid #2a2a2a !important;
+}
+
+/* ── Pipeline step row ───────────────────────────────────────────────────────── */
+.pipeline-row {
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    margin: 8px 0 6px !important;
+}
+.pipeline-step {
+    flex: 1 !important;
+    background: #1c1c1c !important;
+    border: 1px solid #2a2a2a !important;
+    border-radius: 8px !important;
+    padding: 8px 4px !important;
+    text-align: center !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 3px !important;
+    min-width: 0 !important;
+}
+.pipeline-step.step-done {
+    border-color: #10a37f !important;
+    background: rgba(16,163,127,0.07) !important;
+}
+.pipeline-step.step-active {
+    border-color: #f59e0b !important;
+    background: rgba(245,158,11,0.07) !important;
+}
+.step-icon { font-size: 1rem; line-height: 1; }
+.step-name {
+    font-size: 0.63rem !important;
+    color: rgba(255,255,255,0.45) !important;
+    letter-spacing: 0.02em !important;
+    white-space: nowrap !important;
+}
+.step-badge { font-size: 0.68rem !important; }
+.badge-done   { color: #10a37f !important; }
+.badge-active { color: #f59e0b !important;
+    animation: pulse-studio 1.2s ease-in-out infinite !important; }
+.badge-pending { color: rgba(255,255,255,0.18) !important; }
+.pipeline-arrow {
+    color: rgba(255,255,255,0.18) !important;
+    font-size: 0.7rem !important;
+    flex-shrink: 0 !important;
+}
+@keyframes pulse-studio {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.25; }
+}
 """
 
 

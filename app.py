@@ -46,10 +46,7 @@ if not os.environ.get("QWEN_API_KEY", ""):
 
 # ── Navigation ─────────────────────────────────────────────────────────────────
 _pg = st.navigation(
-    [
-        st.Page("pages/chat.py", title="Chat", default=True),
-        st.Page("pages/video_studio.py", title="Video Studio"),
-    ],
+    [st.Page("pages/chat.py", title="Chat", default=True)],
     position="hidden",
 )
 _pg.run()

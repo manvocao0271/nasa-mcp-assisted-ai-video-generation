@@ -97,6 +97,7 @@ def init_session_state(session_id: str) -> None:
         ("_pipeline_run_saved", False),
         ("_cleanup_done", False),
         ("pending_prompt", None),
+        ("studio_open", False),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
