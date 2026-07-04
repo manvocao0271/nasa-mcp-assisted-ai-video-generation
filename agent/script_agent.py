@@ -14,7 +14,7 @@ import httpx
 
 from agent.qwen_client import MODEL_VL_PLUS, QwenClient
 
-OUTPUT_DIR = Path("output")
+_DEFAULT_OUTPUT_DIR = Path("output")
 MAX_SCENES = 3
 
 
@@ -42,8 +42,9 @@ Return ONLY valid JSON — no markdown fences:
 class ScriptAgent:
     """Generates one caption scene per selected NASA image using Qwen (vision)."""
 
-    def __init__(self, qwen_api_key: str) -> None:
+    def __init__(self, qwen_api_key: str, output_dir: Path | None = None) -> None:
         self.qwen_api_key = qwen_api_key
+        self.output_dir = output_dir if output_dir is not None else _DEFAULT_OUTPUT_DIR
 
     _SUPPORTED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
 
@@ -144,13 +145,13 @@ class ScriptAgent:
 
         script = self._normalize(script, user_message, n, images, selected_urls)
 
-        OUTPUT_DIR.mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         md_lines = [f"# {script.get('title', 'Untitled')}\n"]
         for scene in script["scenes"]:
-            md_lines.append(f"## Scene {scene['scene']} — {scene['mood']}\n")
+            md_lines.append(f"## Scene {scene['scene']} \u2014 {scene['mood']}\n")
             md_lines.append(scene["caption"] + "\n")
-        (OUTPUT_DIR / "script.md").write_text("\n".join(md_lines))
-        (OUTPUT_DIR / "script.json").write_text(json.dumps(script, indent=2))
+        (self.output_dir / "script.md").write_text("\n".join(md_lines))
+        (self.output_dir / "script.json").write_text(json.dumps(script, indent=2))
 
         return script
 

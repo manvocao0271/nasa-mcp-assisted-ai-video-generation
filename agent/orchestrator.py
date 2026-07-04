@@ -20,7 +20,7 @@ from agent.script_agent import ScriptAgent, scene_count
 from agent.storyboard_agent import StoryboardAgent
 from agent.video_gen import VideoGen
 
-OUTPUT_DIR = Path("output")
+_DEFAULT_OUTPUT_DIR = Path("output")
 
 
 def _selected_urls(assets: dict) -> list[str]:
@@ -44,15 +44,17 @@ class Orchestrator:
         nasa_api_key: str,
         token_budget: int = 50_000,
         cancel_event: threading.Event | None = None,
+        output_dir: Path | None = None,
     ) -> None:
         self.qwen_api_key = qwen_api_key
         self.nasa_api_key = nasa_api_key
         self.token_budget = token_budget
         self.tokens_used = 0
         self.cancel_event = cancel_event
+        self.output_dir = output_dir if output_dir is not None else _DEFAULT_OUTPUT_DIR
 
-        OUTPUT_DIR.mkdir(exist_ok=True)
-        (OUTPUT_DIR / "clips").mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        (self.output_dir / "clips").mkdir(exist_ok=True)
 
     @staticmethod
     def _cache_matches_topic(assets: dict, user_message: str) -> bool:
@@ -81,7 +83,7 @@ class Orchestrator:
             context: Optional extra text (e.g. the assistant's prior answer) that
                 helps the DataAgent pick the right NASA tools and search terms.
         """
-        assets_path = OUTPUT_DIR / "assets.json"
+        assets_path = self.output_dir / "assets.json"
         if resume and assets_path.exists():
             assets = json.loads(assets_path.read_text())
             if self._cache_matches_topic(assets, user_message):
@@ -96,7 +98,7 @@ class Orchestrator:
             fetch_detail = "Fetching NASA data…"
 
         yield {"stage": "data", "status": "running", "detail": fetch_detail}
-        assets = DataAgent(self.nasa_api_key, self.qwen_api_key).run(user_message, context=context)
+        assets = DataAgent(self.nasa_api_key, self.qwen_api_key, output_dir=self.output_dir).run(user_message, context=context)
         yield {"stage": "data", "status": "done",
                "detail": f"{len(assets.get('images', []))} images fetched",
                "assets": assets}
@@ -106,7 +108,7 @@ class Orchestrator:
         urls = _selected_urls(assets)
 
         # ── Script ────────────────────────────────────────────────────────────
-        script_path = OUTPUT_DIR / "script.json"
+        script_path = self.output_dir / "script.json"
         use_script_cache = resume and script_path.exists()
         if use_script_cache:
             script = json.loads(script_path.read_text())
@@ -118,12 +120,12 @@ class Orchestrator:
                    "detail": f"Loaded from cache ({len(script.get('scenes', []))} scenes)"}
         else:
             yield {"stage": "script", "status": "running", "detail": f"Writing {n} scene caption(s)…"}
-            script = ScriptAgent(self.qwen_api_key).run(assets, user_message, chat_description=chat_description)
+            script = ScriptAgent(self.qwen_api_key, output_dir=self.output_dir).run(assets, user_message, chat_description=chat_description)
             yield {"stage": "script", "status": "done",
                    "detail": f"{len(script['scenes'])} scene(s) written"}
 
         # ── Storyboard ────────────────────────────────────────────────────────
-        storyboard_path = OUTPUT_DIR / "storyboard.json"
+        storyboard_path = self.output_dir / "storyboard.json"
         use_board_cache = resume and storyboard_path.exists()
         if use_board_cache:
             storyboard = json.loads(storyboard_path.read_text())
@@ -135,7 +137,7 @@ class Orchestrator:
                    "detail": f"Loaded from cache ({len(storyboard)} prompts)"}
         else:
             yield {"stage": "storyboard", "status": "running", "detail": "Generating storyboard…"}
-            storyboard = StoryboardAgent(self.qwen_api_key).run(script, assets, user_message, chat_description=chat_description)
+            storyboard = StoryboardAgent(self.qwen_api_key, output_dir=self.output_dir).run(script, assets, user_message, chat_description=chat_description)
             yield {"stage": "storyboard", "status": "done",
                    "detail": f"{len(storyboard)} scene prompt(s)"}
 
@@ -145,7 +147,7 @@ class Orchestrator:
         yield {"stage": "video", "status": "running",
                "detail": f"Generating clip 1/{total}…" if total else "No scenes to render"}
 
-        video_gen = VideoGen(self.qwen_api_key, cancel_event=self.cancel_event)
+        video_gen = VideoGen(self.qwen_api_key, cancel_event=self.cancel_event, output_dir=self.output_dir)
         clips: list[Path] = []
 
         for i, entry in enumerate(storyboard):
@@ -169,7 +171,7 @@ class Orchestrator:
             "assets": assets,
             "clips": [str(c) for c in clips],
         }
-        (OUTPUT_DIR / "episode_manifest.json").write_text(json.dumps(manifest, indent=2))
+        (self.output_dir / "episode_manifest.json").write_text(json.dumps(manifest, indent=2))
 
         yield {"stage": "done", "status": "done", "detail": detail, "manifest": manifest}
 

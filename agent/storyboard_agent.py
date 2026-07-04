@@ -15,7 +15,7 @@ import httpx
 from agent.qwen_client import MODEL_VL_PLUS, QwenClient
 from agent.video_gen import VideoGen
 
-OUTPUT_DIR = Path("output")
+_DEFAULT_OUTPUT_DIR = Path("output")
 
 SYSTEM_PROMPT = """You write image-to-video prompts for Wan 2.7 (silent, visual only).
 Describe what the camera sees — lighting, angle, subject, and motion. ≤80 tokens.
@@ -26,8 +26,9 @@ Return ONLY JSON: {"prompt": "..."}"""
 class StoryboardAgent:
     """Generates one Wan prompt per scene, each locked to its NASA reference frame."""
 
-    def __init__(self, qwen_api_key: str) -> None:
+    def __init__(self, qwen_api_key: str, output_dir: Path | None = None) -> None:
         self.qwen_api_key = qwen_api_key
+        self.output_dir = output_dir if output_dir is not None else _DEFAULT_OUTPUT_DIR
 
     _SUPPORTED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
 
@@ -110,6 +111,6 @@ class StoryboardAgent:
                 "duration_seconds": VideoGen.MAX_DURATION,
             })
 
-        OUTPUT_DIR.mkdir(exist_ok=True)
-        (OUTPUT_DIR / "storyboard.json").write_text(json.dumps(storyboard, indent=2))
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        (self.output_dir / "storyboard.json").write_text(json.dumps(storyboard, indent=2))
         return storyboard
