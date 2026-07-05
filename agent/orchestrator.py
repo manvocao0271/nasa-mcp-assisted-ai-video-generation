@@ -18,7 +18,8 @@ from typing import Generator
 from agent.data_agent import DataAgent
 from agent.script_agent import ScriptAgent, scene_count
 from agent.storyboard_agent import StoryboardAgent
-from agent.video_gen import VideoGen
+from agent.qwen_client import MODEL_VL_PLUS
+from agent.video_gen import VideoGen, MODEL_I2V, MODEL_T2V, VIDEO_RESOLUTION, CLIP_DURATION
 
 _DEFAULT_OUTPUT_DIR = Path("output")
 
@@ -115,14 +116,18 @@ class Orchestrator:
             use_script_cache = _script_cache_valid(script, assets)
 
         if use_script_cache:
-            yield {"stage": "script", "status": "running", "detail": "Loading cached script…"}
+            yield {"stage": "script", "status": "running", "detail": "Loading cached script…", "model": MODEL_VL_PLUS}
             yield {"stage": "script", "status": "done",
-                   "detail": f"Loaded from cache ({len(script.get('scenes', []))} scenes)"}
+                   "detail": f"Loaded from cache ({len(script.get('scenes', []))} scenes)",
+                   "model": MODEL_VL_PLUS}
         else:
-            yield {"stage": "script", "status": "running", "detail": f"Writing {n} scene caption(s)…"}
+            yield {"stage": "script", "status": "running", "detail": f"Writing {n} scene caption(s)…", "model": MODEL_VL_PLUS}
             script = ScriptAgent(self.qwen_api_key, output_dir=self.output_dir).run(assets, user_message, chat_description=chat_description)
             yield {"stage": "script", "status": "done",
-                   "detail": f"{len(script['scenes'])} scene(s) written"}
+                   "detail": f"{len(script['scenes'])} scene(s) written",
+                   "model": MODEL_VL_PLUS,
+                   "scenes": [{"scene": s.get("scene"), "caption": s.get("caption", "")[:80]}
+                               for s in script.get("scenes", [])]}
 
         # ── Storyboard ────────────────────────────────────────────────────────
         storyboard_path = self.output_dir / "storyboard.json"
@@ -132,28 +137,39 @@ class Orchestrator:
             use_board_cache = len(storyboard) == len(script.get("scenes", []))
 
         if use_board_cache:
-            yield {"stage": "storyboard", "status": "running", "detail": "Loading cached storyboard…"}
+            yield {"stage": "storyboard", "status": "running", "detail": "Loading cached storyboard…", "model": MODEL_VL_PLUS}
             yield {"stage": "storyboard", "status": "done",
-                   "detail": f"Loaded from cache ({len(storyboard)} prompts)"}
+                   "detail": f"Loaded from cache ({len(storyboard)} prompts)",
+                   "model": MODEL_VL_PLUS}
         else:
-            yield {"stage": "storyboard", "status": "running", "detail": "Generating storyboard…"}
+            yield {"stage": "storyboard", "status": "running", "detail": "Generating visual prompts…", "model": MODEL_VL_PLUS}
             storyboard = StoryboardAgent(self.qwen_api_key, output_dir=self.output_dir).run(script, assets, user_message, chat_description=chat_description)
             yield {"stage": "storyboard", "status": "done",
-                   "detail": f"{len(storyboard)} scene prompt(s)"}
+                   "detail": f"{len(storyboard)} scene prompt(s) ready",
+                   "model": MODEL_VL_PLUS}
 
         # ── Video ─────────────────────────────────────────────────────────────
         total = len(storyboard)
 
+        _first_entry = storyboard[0] if storyboard else {}
+        _first_i2v = bool(_first_entry.get("ref_image_url"))
         yield {"stage": "video", "status": "running",
-               "detail": f"Generating clip 1/{total}…" if total else "No scenes to render"}
+               "detail": f"Rendering clip 1/{total}…" if total else "No scenes to render",
+               "model": MODEL_I2V if _first_i2v else MODEL_T2V,
+               "mode": "I2V" if _first_i2v else "T2V",
+               "resolution": VIDEO_RESOLUTION, "duration": CLIP_DURATION}
 
         video_gen = VideoGen(self.qwen_api_key, cancel_event=self.cancel_event, output_dir=self.output_dir)
         clips: list[Path] = []
 
         for i, entry in enumerate(storyboard):
             if i > 0:
+                _is_i2v = bool(entry.get("ref_image_url"))
                 yield {"stage": "video", "status": "running",
-                       "detail": f"Generating clip {i + 1}/{total}…"}
+                       "detail": f"Rendering clip {i + 1}/{total}…",
+                       "model": MODEL_I2V if _is_i2v else MODEL_T2V,
+                       "mode": "I2V" if _is_i2v else "T2V",
+                       "resolution": VIDEO_RESOLUTION, "duration": CLIP_DURATION}
             clip = video_gen.generate_one(entry)
             clips.append(clip)
             for w in video_gen.warnings:

@@ -25,10 +25,8 @@ The UI has three persistent panels:
 Every frame is anchored to something real — terrain, weather, orbital context, and event data assembled into a scene.
 
 
-https://github.com/user-attachments/assets/39d00d64-587d-4d8a-af4d-fba9cfce504c
+https://youtu.be/64gBpnW1y6w
 
-
-Music by Kyle Dixon & Michael Stein
 
 ## System architecture
 
@@ -128,6 +126,14 @@ These are the next NASA data sources to wire into the pipeline so a scene can be
 | Video generation | Wan / HappyHorse endpoint on Qwen Cloud |
 | MCP server hosting | Alibaba Cloud ECS / Function Compute |
 | Asset caching | Alibaba Cloud OSS (production) / SQLite (local dev) |
+
+## Live demo
+
+The app is deployed on Alibaba Cloud ECS (US Virginia):
+
+- **URL:** http://willai-demo.duckdns.org
+- **Server:** `47.85.190.101` — ecs.e-c1m1.large, 2 vCPU, 2 GB RAM, Ubuntu 22.04
+- **Stack:** Streamlit served via nginx reverse proxy on port 80
 
 ## Getting started
 

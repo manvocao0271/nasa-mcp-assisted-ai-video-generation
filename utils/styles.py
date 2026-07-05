@@ -132,15 +132,21 @@ footer { display: none !important; }
 
 /* ── Chat input ─────────────────────────────────────────────────────────────── */
 /* stBottomBlockContainer is the correct data-testid in Streamlit 1.58        */
+/* stBottom spans full main-area width; making it transparent avoids the      */
+/* dark "bars" that appear on each side of the centered input container.      */
 [data-testid="stBottom"] {
-    background-color: #212121 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    border-top: none !important;
 }
 [data-testid="stBottomBlockContainer"] {
     max-width: 800px !important;
     width: 100% !important;
     margin-left: auto !important;
     margin-right: auto !important;
-    background-color: #212121 !important;
+    background: #212121 !important;
     border-top: none !important;
     padding: 0.75rem 0 1rem !important;
     box-sizing: border-box !important;
@@ -255,12 +261,14 @@ hr {
 [data-testid="stStatusWidget"] { color: #ececec !important; }
 
 /* ── Video studio: queue item rows ─────────────────────────────────────────── */
-.queue-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 4px;
-    border-bottom: 1px solid #2a2a2a;
+.queue-label {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.65);
+    padding: 3px 0 3px 2px;
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ── Video studio: inline generate button ───────────────────────────────────── */
@@ -358,6 +366,79 @@ hr.studio-hr {
 @keyframes pulse-studio {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0.25; }
+}
+
+/* ── Pipeline execution log ──────────────────────────────────────────────────── */
+.pipeline-log {
+    background: #1a1a1a;
+    border: 1px solid #272727;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 8px 0 4px;
+    font-size: 0.76rem;
+    line-height: 1.65;
+}
+.log-stage { }
+.log-stage-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+}
+.log-stage-sep {
+    border-top: 1px solid #272727;
+    margin-top: 7px;
+    padding-top: 7px;
+}
+.log-icon  { font-size: 0.82rem; flex-shrink: 0; }
+.log-label {
+    font-weight: 600;
+    font-size: 0.76rem;
+    color: rgba(255,255,255,0.82);
+    letter-spacing: 0.01em;
+}
+.log-model {
+    margin-left: auto;
+    font-size: 0.66rem;
+    color: rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.05);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 62%;
+}
+.log-status-done    { color: #10a37f; font-size: 0.72rem; flex-shrink: 0; }
+.log-status-running { color: #f59e0b; font-size: 0.72rem; flex-shrink: 0;
+    animation: pulse-studio 1.2s ease-in-out infinite; }
+.log-status-pending { color: rgba(255,255,255,0.18); font-size: 0.72rem; flex-shrink: 0; }
+.log-entries { padding-left: 16px; }
+.log-entry  { font-size: 0.73rem; color: rgba(255,255,255,0.42); line-height: 1.7; }
+.log-done   { color: rgba(255,255,255,0.4); }
+.log-running{ color: #f59e0b; }
+.log-scene  {
+    font-size: 0.70rem;
+    color: rgba(255,255,255,0.28);
+    font-style: italic;
+    padding: 1px 0 3px 8px;
+    border-left: 2px solid #2a2a2a;
+    margin: 1px 0 4px;
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.log-warning {
+    font-size: 0.73rem;
+    color: #f59e0b;
+    background: rgba(245,158,11,0.07);
+    border-left: 2px solid #f59e0b;
+    padding: 5px 9px;
+    border-radius: 0 5px 5px 0;
+    margin-top: 8px;
+    line-height: 1.55;
 }
 """
 

@@ -71,17 +71,27 @@ def _queue_image(img: dict, description: str, data_context: dict) -> None:
     })
 
 
-def _save_chat_turn(user_message: str, assistant_response: str) -> None:
-    """Persist a chat turn to RunDB."""
+def _save_chat_turn(
+    user_message: str,
+    assistant_response: str,
+    chat_assets: dict | None = None,
+    retrieved_passages: list | None = None,
+) -> None:
+    """Persist a chat turn to RunDB, including images and retrieved sources."""
     conv_id = st.session_state.conversation_id
     history_before = _db.get_conversation_history(conv_id)
     is_first = len(history_before) == 0
+    _assets = {
+        "images": (chat_assets or {}).get("images", []),
+        "data":   (chat_assets or {}).get("data", {}),
+        "_retrieved": retrieved_passages or [],
+    }
     _db.save_run(
         run_id=str(uuid.uuid4()),
         conversation_id=conv_id,
         user_message=user_message,
         assistant_response=assistant_response,
-        assets={},
+        assets=_assets,
         manifest={},
         messages=[
             Message(role=m["role"], content=m["content"], timestamp=datetime.now().isoformat())
@@ -90,6 +100,22 @@ def _save_chat_turn(user_message: str, assistant_response: str) -> None:
     )
     if is_first:
         _db.set_conversation_title(conv_id, user_message[:120])
+
+
+def _messages_from_history(history: list[dict]) -> list[dict]:
+    """Convert RunDB history rows back into session-state message dicts."""
+    msgs: list[dict] = []
+    for run in history:
+        msgs.append({"role": "user", "content": run["user_message"]})
+        raw = dict(run.get("assets") or {})
+        retrieved = raw.pop("_retrieved", [])
+        msgs.append({
+            "role": "assistant",
+            "content": run["assistant_response"],
+            "assets": raw,
+            "retrieved_passages": retrieved,
+        })
+    return msgs
 
 
 def _merge_data_contexts(queue_items: list[dict]) -> dict:
@@ -144,6 +170,101 @@ def _pipeline_steps_html(statuses: dict[str, str]) -> str:
         if i < len(_PIPELINE_STAGES) - 1:
             parts.append('<div class="pipeline-arrow">→</div>')
     return f'<div class="pipeline-row">{"".join(parts)}</div>'
+
+
+def _pipeline_log_html(updates: list[dict]) -> str:
+    """Build a detailed pipeline execution log as HTML from all update dicts."""
+    if not updates:
+        return ""
+
+    _STAGE_META: dict[str, tuple[str, str]] = {
+        "script":     ("📝", "Script"),
+        "storyboard": ("🎨", "Storyboard"),
+        "video":      ("🎬", "Video"),
+        "data":       ("🔭", "Data"),
+    }
+
+    stage_updates: dict[str, list[dict]] = {}
+    stage_order: list[str] = []
+    warnings: list[str] = []
+
+    for upd in updates:
+        stage = upd.get("stage", "")
+        if stage == "warning":
+            warnings.append(upd.get("detail", ""))
+        elif stage and stage not in ("error", "done"):
+            if stage not in stage_updates:
+                stage_updates[stage] = []
+                stage_order.append(stage)
+            stage_updates[stage].append(upd)
+
+    html: list[str] = ['<div class="pipeline-log">']
+
+    for idx, stage in enumerate(stage_order):
+        entries = stage_updates[stage]
+        icon, label = _STAGE_META.get(stage, ("●", stage.title()))
+
+        model     = next((e.get("model")      for e in entries if e.get("model")),      None)
+        mode      = next((e.get("mode")       for e in entries if e.get("mode")),       None)
+        resolution= next((e.get("resolution") for e in entries if e.get("resolution")), None)
+        duration  = next((e.get("duration")   for e in entries if e.get("duration")),   None)
+
+        meta_parts: list[str] = []
+        if model:
+            meta_parts.append(model)
+        if mode:
+            meta_parts.append(mode)
+        if resolution:
+            meta_parts.append(resolution)
+        if duration:
+            meta_parts.append(f"{duration}s")
+        meta_str = " · ".join(meta_parts)
+
+        is_done    = any(e.get("status") == "done"    for e in entries)
+        is_running = not is_done and any(e.get("status") == "running" for e in entries)
+
+        if is_done:
+            status_badge = '<span class="log-status-done">✓</span>'
+        elif is_running:
+            status_badge = '<span class="log-status-running">●</span>'
+        else:
+            status_badge = '<span class="log-status-pending">○</span>'
+
+        sep_cls = " log-stage-sep" if idx > 0 else ""
+        html.append(
+            f'<div class="log-stage">'
+            f'<div class="log-stage-header{sep_cls}">'
+            f'<span class="log-icon">{icon}</span>'
+            f'<span class="log-label">{label}</span>'
+        )
+        if meta_str:
+            html.append(f'<span class="log-model">{meta_str}</span>')
+        html.append(f'{status_badge}</div><div class="log-entries">')
+
+        for entry in entries:
+            detail = entry.get("detail", "")
+            status = entry.get("status", "")
+            if not detail:
+                continue
+            if status == "done":
+                html.append(f'<div class="log-entry log-done">✓&nbsp;{detail}</div>')
+                for scene in entry.get("scenes", [])[:2]:
+                    cap = scene.get("caption", "")[:70]
+                    sc_n = scene.get("scene", "")
+                    if cap:
+                        html.append(
+                            f'<div class="log-scene">Scene {sc_n}: {cap}…</div>'
+                        )
+            else:
+                html.append(f'<div class="log-entry log-running">→&nbsp;{detail}</div>')
+
+        html.append("</div></div>")
+
+    for warn in warnings:
+        html.append(f'<div class="log-warning">⚠&nbsp;{warn}</div>')
+
+    html.append("</div>")
+    return "".join(html)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -240,20 +361,20 @@ def _render_studio_panel() -> None:
     st.markdown('<div class="studio-section">INPUTS</div>', unsafe_allow_html=True)
 
     if _q:
-        _tcols = st.columns(min(len(_q), 4))
-        for _qi, (_tc, _item) in enumerate(zip(_tcols, _q[:4])):
-            with _tc:
-                _tu = _item.get("thumb_url") or _item.get("url", "")
-                if _tu:
-                    try:
-                        st.image(fetch_thumb(_tu), use_container_width=True)
-                    except Exception:
-                        st.markdown("🖼")
+        for _qi, _item in enumerate(_q):
+            _label = (_item.get("caption") or _item.get("source") or "Image").strip()
+            if len(_label) > 58:
+                _label = _label[:55] + "…"
+            _ra, _rb = st.columns([9, 1])
+            with _ra:
+                st.markdown(
+                    f'<div class="queue-label">🖼&nbsp;{_label}</div>',
+                    unsafe_allow_html=True,
+                )
+            with _rb:
                 if st.button("✕", key=f"rm_{_qi}", help="Remove"):
                     st.session_state.video_queue.pop(_qi)
                     st.rerun()
-        if len(_q) > 4:
-            st.caption(f"+ {len(_q) - 4} more")
         st.button(
             "Clear all", key="clear_queue",
             on_click=lambda: st.session_state.video_queue.clear(),
@@ -342,17 +463,10 @@ def _render_studio_panel() -> None:
         _statuses = _pipeline_stage_statuses(_updates)
         st.markdown(_pipeline_steps_html(_statuses), unsafe_allow_html=True)
 
-        # Active stage detail caption
-        _last: dict[str, dict] = {}
-        for upd in _updates:
-            s = upd.get("stage", "")
-            if s:
-                _last[s] = upd
-        for _key, _icon, _lbl in _PIPELINE_STAGES:
-            _upd = _last.get(_key)
-            if _upd and _upd.get("status") == "running":
-                st.caption(f"*{_STAGE_DETAIL_LABELS.get(_key, _lbl)}…*")
-                break
+        # Detailed pipeline execution log
+        _log = _pipeline_log_html(_updates)
+        if _log:
+            st.markdown(_log, unsafe_allow_html=True)
 
         # Error display
         for upd in _updates:
@@ -421,6 +535,14 @@ def _render_studio_panel() -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE RENDER
 # ══════════════════════════════════════════════════════════════════════════════
+
+# On hard browser refresh session_state is cleared but the conversation_id is
+# restored from the DB (see session.py). Reload the message history so the
+# chat panel isn't blank.
+if not st.session_state.messages:
+    _init_hist = _db.get_conversation_history(st.session_state.conversation_id)
+    if _init_hist:
+        st.session_state.messages = _messages_from_history(_init_hist)
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -491,17 +613,7 @@ with st.sidebar:
                               key=f"conv_{conv['conversation_id']}"):
                     st.session_state.conversation_id = conv["conversation_id"]
                     history = _db.get_conversation_history(conv["conversation_id"])
-                    st.session_state.messages = []
-                    for run in history:
-                        st.session_state.messages.append(
-                            {"role": "user", "content": run["user_message"]}
-                        )
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": run["assistant_response"],
-                            "assets": run.get("assets") or {},
-                            "retrieved_passages": [],
-                        })
+                    st.session_state.messages = _messages_from_history(history)
                     st.rerun()
     else:
         st.caption("No conversations yet.")
@@ -728,7 +840,7 @@ with _msg_area:
                         "assets": _turn_assets,
                         "retrieved_passages": retrieved,
                     })
-                    _save_chat_turn(user_input, answer)
+                    _save_chat_turn(user_input, answer, _turn_assets, retrieved)
 
                 # Rerun so images render from history loop with stable keys
                 st.rerun()
