@@ -131,12 +131,18 @@ footer { display: none !important; }
 }
 
 /* ── Chat input ─────────────────────────────────────────────────────────────── */
-/* stBottomBlockContainer is the correct data-testid in Streamlit 1.58        */
-/* stBottom spans full main-area width; making it transparent avoids the      */
-/* dark "bars" that appear on each side of the centered input container.      */
-[data-testid="stBottom"] {
-    background: transparent !important;
-    background-color: transparent !important;
+/* stBottom spans full main-area width; the areas on each side of the centred  */
+/* input block appear as dark bars if this element has its own background.     */
+/* Target it three ways to cover all deployed Streamlit versions:              */
+/*   1. data-testid (1.29 +)                                                   */
+/*   2. class name fallback                                                     */
+/*   3. :has() — matches the parent of stBottomBlockContainer regardless of    */
+/*      its name, so it works even if the testid changes across versions.       */
+[data-testid="stBottom"],
+.stBottom,
+:has(> [data-testid="stBottomBlockContainer"]) {
+    background: #212121 !important;
+    background-color: #212121 !important;
     background-image: none !important;
     box-shadow: none !important;
     border-top: none !important;
