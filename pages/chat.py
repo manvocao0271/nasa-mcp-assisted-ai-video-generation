@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import os
+import base64
+import html as _html
+import json
 import queue
 import threading
 import time
@@ -38,9 +41,9 @@ _SUGGESTIONS = [
 
 # ── Pipeline stage definitions ─────────────────────────────────────────────────
 _PIPELINE_STAGES = [
-    ("script",     "📝", "Script"),
-    ("storyboard", "🎨", "Storyboard"),
-    ("video",      "🎬", "Video"),
+    ("script",     "", "Script"),
+    ("storyboard", "", "Storyboard"),
+    ("video",      "", "Video"),
 ]
 _STAGE_DETAIL_LABELS = {
     "data":       "Fetching NASA data",
@@ -69,6 +72,25 @@ def _queue_image(img: dict, description: str, data_context: dict) -> None:
         "data_context": data_context,
         "description": description,
     })
+    _save_studio_state()
+
+
+def _save_studio_state() -> None:
+    """Persist video queue and pipeline state to the session dir.
+
+    Called after every meaningful change so a hard browser refresh
+    restores the Video Studio to exactly the state the user left it in.
+    """
+    try:
+        state = {
+            "video_queue":       st.session_state.video_queue,
+            "pipeline_updates":  st.session_state._pipeline_updates,
+            "pipeline_run_saved": st.session_state._pipeline_run_saved,
+            "studio_open":       st.session_state.studio_open,
+        }
+        (_session_dir / "studio_state.json").write_text(json.dumps(state))
+    except Exception:
+        pass  # non-critical — never surface a disk error to the user
 
 
 def _save_chat_turn(
@@ -178,10 +200,10 @@ def _pipeline_log_html(updates: list[dict]) -> str:
         return ""
 
     _STAGE_META: dict[str, tuple[str, str]] = {
-        "script":     ("📝", "Script"),
-        "storyboard": ("🎨", "Storyboard"),
-        "video":      ("🎬", "Video"),
-        "data":       ("🔭", "Data"),
+        "script":     ("", "Script"),
+        "storyboard": ("", "Storyboard"),
+        "video":      ("", "Video"),
+        "data":       ("", "Data"),
     }
 
     stage_updates: dict[str, list[dict]] = {}
@@ -261,7 +283,7 @@ def _pipeline_log_html(updates: list[dict]) -> str:
         html.append("</div></div>")
 
     for warn in warnings:
-        html.append(f'<div class="log-warning">⚠&nbsp;{warn}</div>')
+        html.append(f'<div class="log-warning">{warn}</div>')
 
     html.append("</div>")
     return "".join(html)
@@ -271,10 +293,15 @@ def _pipeline_log_html(updates: list[dict]) -> str:
 # VIDEO STUDIO PANEL
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _launch_pipeline(prompt_text: str, use_i2v: bool) -> None:
-    """Build merged_assets and start the background pipeline thread."""
+def _launch_pipeline(prompt_text: str) -> None:
+    """Build merged_assets and start the background pipeline thread.
+
+    Always uses I2V when images are queued.  If the video model
+    falls back to T2V at runtime (e.g. quota exhausted), that is
+    reported transparently via the pipeline log warning.
+    """
     _q = st.session_state.video_queue
-    if use_i2v and _q:
+    if _q:
         merged_assets: dict = {
             "query": prompt_text,
             "images": [
@@ -349,16 +376,10 @@ def _render_studio_panel() -> None:
     _q = st.session_state.video_queue
 
     # ── Panel header ─────────────────────────────────────────────────────────
-    _h, _x = st.columns([9, 1])
-    with _h:
-        st.markdown('<p class="studio-title">🎬 Video Studio</p>', unsafe_allow_html=True)
-    with _x:
-        if st.button("✕", key="close_studio", help="Close panel"):
-            st.session_state.studio_open = False
-            st.rerun()
+    st.markdown('<p class="studio-title">Video Studio</p>', unsafe_allow_html=True)
 
     # ── INPUTS ───────────────────────────────────────────────────────────────
-    st.markdown('<div class="studio-section">INPUTS</div>', unsafe_allow_html=True)
+    st.markdown('<div class="studio-section">REFERENCE IMAGES (max 3)</div>', unsafe_allow_html=True)
 
     if _q:
         for _qi, _item in enumerate(_q):
@@ -368,21 +389,18 @@ def _render_studio_panel() -> None:
             _ra, _rb = st.columns([9, 1])
             with _ra:
                 st.markdown(
-                    f'<div class="queue-label">🖼&nbsp;{_label}</div>',
+                    f'<div class="queue-label">{_label}</div>',
                     unsafe_allow_html=True,
                 )
             with _rb:
                 if st.button("✕", key=f"rm_{_qi}", help="Remove"):
                     st.session_state.video_queue.pop(_qi)
+                    _save_studio_state()
                     st.rerun()
-        st.button(
-            "Clear all", key="clear_queue",
-            on_click=lambda: st.session_state.video_queue.clear(),
-        )
+
     else:
         st.markdown(
-            '<p class="studio-empty">Add NASA images from chat using the '
-            '<strong>📌 Add to queue</strong> button.</p>',
+            '<p class="studio-empty">Click any NASA image in the chat to add it here.</p>',
             unsafe_allow_html=True,
         )
 
@@ -390,8 +408,7 @@ def _render_studio_panel() -> None:
 
     # ── PROMPT ───────────────────────────────────────────────────────────────
     st.markdown(
-        '<div class="studio-section">PROMPT '
-        '<span class="studio-optional">(optional)</span></div>',
+        '<div class="studio-section">PROMPT (optional, t2v fallback)',
         unsafe_allow_html=True,
     )
     _video_prompt: str = st.text_area(
@@ -401,29 +418,20 @@ def _render_studio_panel() -> None:
         height=72,
         key="studio_prompt",
     )
-    _mode = st.radio(
-        "mode",
-        ["I2V — use queued images", "T2V — text only"],
-        index=0 if _q else 1,
-        horizontal=True,
-        label_visibility="collapsed",
-        key="studio_mode",
-    )
-    _use_i2v = _mode.startswith("I2V")
 
     st.markdown('<hr class="studio-hr">', unsafe_allow_html=True)
 
     # ── GENERATE / CANCEL ────────────────────────────────────────────────────
     _running = st.session_state._pipeline_running
     if _running:
-        if st.button("✕  Cancel", key="cancel_pipeline", use_container_width=True):
+        if st.button("Cancel", key="cancel_pipeline", use_container_width=True):
             ev = st.session_state._pipeline_cancel
             if ev:
                 ev.set()
     else:
         _can_gen = bool((_video_prompt or "").strip() or _q)
         if st.button(
-            "▶  Generate Video",
+            "Generate Video",
             type="primary",
             use_container_width=True,
             disabled=not _can_gen,
@@ -432,14 +440,12 @@ def _render_studio_panel() -> None:
             _prompt = (_video_prompt or "").strip() or (
                 " ".join(i.get("caption", "") for i in _q[:3])
             )
-            _launch_pipeline(_prompt, _use_i2v)
+            _launch_pipeline(_prompt)
             st.rerun()
 
     st.markdown('<hr class="studio-hr">', unsafe_allow_html=True)
 
     # ── PIPELINE STATUS ───────────────────────────────────────────────────────
-    st.markdown('<div class="studio-section">PIPELINE</div>', unsafe_allow_html=True)
-
     # Drain the live update queue on every render cycle
     _live_pq = st.session_state._pipeline_queue
     if _live_pq is not None:
@@ -458,7 +464,11 @@ def _render_studio_panel() -> None:
     _updates = st.session_state._pipeline_updates
     _running  = st.session_state._pipeline_running
 
+    # Persist latest state so a browser refresh restores the pipeline log and clips.
+    _save_studio_state()
+
     if _updates or _running:
+        st.markdown('<div class="studio-section">PIPELINE</div>', unsafe_allow_html=True)
         # Visual step row
         _statuses = _pipeline_stage_statuses(_updates)
         st.markdown(_pipeline_steps_html(_statuses), unsafe_allow_html=True)
@@ -486,13 +496,6 @@ def _render_studio_panel() -> None:
         if _running:
             time.sleep(2)
             st.rerun()
-
-    else:
-        st.markdown(
-            '<p class="studio-empty">Pipeline status will appear here once '
-            "you generate a video.</p>",
-            unsafe_allow_html=True,
-        )
 
     # ── OUTPUT ───────────────────────────────────────────────────────────────
     _manifest: dict = {}
@@ -544,15 +547,30 @@ if not st.session_state.messages:
     if _init_hist:
         st.session_state.messages = _messages_from_history(_init_hist)
 
+# Restore Video Studio state (queue, pipeline log, generated clips) on hard
+# refresh.  Uses a one-shot flag so the file is only read once per session.
+if "_studio_state_restored" not in st.session_state:
+    st.session_state._studio_state_restored = True
+    _sf = _session_dir / "studio_state.json"
+    if _sf.exists():
+        try:
+            _ss = json.loads(_sf.read_text())
+            st.session_state.video_queue        = _ss.get("video_queue", [])
+            st.session_state._pipeline_updates  = _ss.get("pipeline_updates", [])
+            st.session_state._pipeline_run_saved= _ss.get("pipeline_run_saved", False)
+            if _ss.get("studio_open"):
+                st.session_state.studio_open = True
+        except Exception:
+            pass
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(
         """
-        <div style="padding:6px 4px 16px; display:flex; align-items:center; gap:10px;">
+        <div style="padding:6px 4px 16px; display:flex; flex-direction:column; gap:3px;">
             <div style="font-size:1.15rem; font-weight:700; color:#ececec;
                         letter-spacing:-0.02em;">WILL.AI</div>
-            <div style="font-size:0.68rem; color:rgba(255,255,255,0.3);
-                        margin-top:1px;">What Infinity Looks Like</div>
+            <div style="font-size:0.68rem; color:rgba(255,255,255,0.3);">What Infinity Looks Like</div>
         </div>
         <div style="display:inline-flex; align-items:center; gap:5px;
             background:linear-gradient(90deg,#FF6A00,#EE0979);
@@ -569,7 +587,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    if st.button("＋  New chat", use_container_width=True, key="new_chat_btn", type="primary"):
+    if st.button("+  New chat", use_container_width=True, key="new_chat_btn", type="primary"):
         st.session_state.conversation_id = str(uuid.uuid4())
         st.session_state.messages = []
         st.rerun()
@@ -631,48 +649,58 @@ if _studio_open:
     # itself never needs to scroll — the studio column stays in place naturally.
     st.markdown(
         """<style>
+        /* ── Disable page scroll when studio is open ─────────────────── */
+        html, body,
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"] {
+            overflow: hidden !important;
+            max-height: 100vh !important;
+        }
+
         /* ── Full-width layout, no vertical padding ─────────────────── */
         [data-testid="stMainBlockContainer"],
         .stMainBlockContainer,
         .block-container {
             max-width: 100% !important;
-            padding: 0 0 0 2rem !important;
+            padding: 0 !important;
             margin: 0 !important;
             box-sizing: border-box !important;
         }
 
-        /* ── Chat scroll container (st.container(height=X)) ─────────── */
-        /* CSS overrides the fixed-px height Streamlit sets so it fills   */
-        /* the viewport. border:none removes the default focus ring.      */
-        /* padding-right creates breathing room between the content and   */
-        /* the container's scrollbar, matching the closed-studio feel.    */
+        /* ── Chat scroll container: height + scrollbar only ─────────── */
         [data-testid="stVerticalBlockBorderWrapper"] {
             height: calc(100vh - 75px) !important;
             max-height: calc(100vh - 75px) !important;
             border: none !important;
             border-radius: 0 !important;
             background: transparent !important;
-            padding-right: 2rem !important;
+            scrollbar-gutter: stable !important;
             box-sizing: border-box !important;
         }
 
-        /* ── Studio column: visual styling only (height set via JS) ─── */
-        /* Exclude horizontal blocks inside stChatMessage (image grids). */
-        [data-testid="stHorizontalBlock"]:not([data-testid="stChatMessage"] [data-testid="stHorizontalBlock"]) > [data-testid="column"]:last-child:not(:first-child) {
+        /* ── Studio column: background, border, scrolling ─────────── */
+        /* Padding is applied via JS (cols[0/1].style) not CSS, because   */
+        /* Streamlit's React layer overrides column padding via CSS.       */
+        /* The :not([data-testid="column"] ...) guard prevents this rule from
+           accidentally styling the inner padding column added for chat indent. */
+        [data-testid="stHorizontalBlock"]:not([data-testid="stChatMessage"] [data-testid="stHorizontalBlock"]):not([data-testid="column"] [data-testid="stHorizontalBlock"]) > [data-testid="column"]:last-child:not(:first-child) {
             background: #212121 !important;
             border-left: 1px solid #2a2a2a !important;
             overflow-y: auto !important;
+            scrollbar-gutter: stable !important;
+            padding: 0 3rem 1rem 1rem !important;
             box-sizing: border-box !important;
         }
 
         /* ── Bottom bar ─────────────────────────────────────────────── */
         [data-testid="stBottom"] { z-index: 200 !important; }
-        /* padding-right keeps input bar aligned with the padded chat    */
-        /* content: studio width + same 2rem gap as the scroll container */
+        /* gap="medium" = 2rem, shared between 2 cols, so chat column is
+           (vw-300-2rem)*11/19 wide. Accounting for that gap keeps the
+           input bar's right content edge flush with the chat log's right. */
         [data-testid="stBottomBlockContainer"] {
             max-width: 100% !important;
-            padding-left: 2rem !important;
-            padding-right: calc((100vw - 258px) * 0.421 + 2rem) !important;
+            padding-left: 8.5rem !important;
+            padding-right: calc((100vw - 300px) * 0.421 + .8rem) !important;
             box-sizing: border-box !important;
         }
         </style>""",
@@ -680,7 +708,10 @@ if _studio_open:
     )
 
 # ── Chat input (always rendered at page bottom by Streamlit) ──────────────────
-user_input = st.chat_input("Ask anything about the universe…")
+user_input = st.chat_input(
+    "Ask anything about the universe…",
+    disabled=st.session_state._chat_streaming,
+)
 
 # Fire a suggestion-click prompt if one is pending
 if not user_input and st.session_state.get("pending_prompt"):
@@ -702,7 +733,12 @@ else:
 # `with` exits, so we render the content in a separate `with _msg_area:`.
 with _col_chat:
     if _studio_open:
-        _msg_area = st.container(height=1200, border=False)
+        # Blank padding column (2 units) + actual chat content (8 units).
+        # CSS/JS cannot reliably override Streamlit's emotion column styles,
+        # so a real Streamlit column is the only way to create left indent.
+        _pad_col, _chat_inner = st.columns([1, 7], gap=None)
+        with _chat_inner:
+            _msg_area = st.container(height=1200, border=False)
     else:
         _msg_area = st.container()
 
@@ -712,18 +748,12 @@ with _msg_area:
         # ── Welcome screen ─────────────────────────────────────────────────
         st.markdown(
             """
-            <div style="height:42vh; display:flex; flex-direction:column;
+            <div style="height:30vh; display:flex; flex-direction:column;
                         align-items:center; justify-content:flex-end;
                         text-align:center; gap:0.9rem; padding-bottom:1.5rem;">
                 <p style="font-size:2rem; font-weight:700; color:#ececec;
                           margin:0; letter-spacing:-0.03em; line-height:1.1;">
                     What can I help with?
-                </p>
-                <p style="font-size:0.9rem; color:rgba(255,255,255,0.35);
-                          margin:0; max-width:400px; line-height:1.75;">
-                    Ask me anything about the universe — a star's life cycle, the
-                    latest solar storm, an exoplanet's atmosphere, or what the
-                    rover saw on Mars today.
                 </p>
             </div>
             """,
@@ -744,6 +774,54 @@ with _msg_area:
         )
 
     else:
+        # ── Drain active chat stream queue ─────────────────────────────────
+        _cq = st.session_state._chat_stream_queue
+        if _cq is not None:
+            _stream_done = False
+            _stream_err: str | None = None
+            try:
+                while True:
+                    _ci = _cq.get_nowait()
+                    if _ci is None:          # sentinel — thread finished
+                        _stream_done = True
+                        break
+                    elif _ci.get("type") == "chunk":
+                        st.session_state._chat_stream_buffer += _ci["text"]
+                    elif _ci.get("type") == "done":
+                        _r = _ci.get("result", {})
+                        st.session_state._chat_stream_retrieved = _r.get("retrieved_passages", [])
+                        st.session_state._chat_stream_assets   = _r.get("chat_assets", {})
+                    elif _ci.get("type") == "error":
+                        _stream_err  = _ci.get("detail", "Unexpected error")
+                        _stream_done = True
+                        break
+            except queue.Empty:
+                pass
+
+            if _stream_done:
+                st.session_state._chat_streaming     = False
+                st.session_state._chat_stream_queue  = None
+                if _stream_err:
+                    st.error(f"**Chat error:** {_stream_err}")
+                else:
+                    _ans  = st.session_state._chat_stream_buffer
+                    _retr = st.session_state._chat_stream_retrieved
+                    _ast  = st.session_state._chat_stream_assets
+                    _umsg = st.session_state._chat_stream_user_msg
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": _ans,
+                        "assets": _ast,
+                        "retrieved_passages": _retr,
+                    })
+                    _save_chat_turn(_umsg, _ans, _ast, _retr)
+                    st.session_state._chat_stream_buffer    = ""
+                    st.session_state._chat_stream_retrieved = []
+                    st.session_state._chat_stream_assets    = {}
+                    st.session_state._chat_stream_user_msg  = ""
+                # Rerun so images/sources render from history loop with stable keys
+                st.rerun()
+
         # ── Conversation history ────────────────────────────────────────────
         for idx_m, message in enumerate(st.session_state.messages):
             with st.chat_message(message["role"]):
@@ -769,21 +847,111 @@ with _msg_area:
                         _img_cols = st.columns(min(len(msg_imgs), 3))
                         for i, (_ic, img) in enumerate(zip(_img_cols, msg_imgs[:3])):
                             with _ic:
-                                _t = fetch_thumb(img.get("thumb_url") or img.get("url", ""))
-                                st.image(_t, caption=img.get("caption", "")[:50])
                                 _already = any(
                                     item["url"] == img.get("url", "")
                                     for item in st.session_state.video_queue
                                 )
-                                if st.button(
-                                    "✓ Queued" if _already else "📌 Add to queue",
-                                    key=f"q_hist_{idx_m}_{i}",
-                                    disabled=_already,
-                                    use_container_width=True,
-                                ):
-                                    _queue_image(img, msg_desc, msg_data_ctx)
-                                    st.session_state.studio_open = True
-                                    st.rerun()
+                                _t = fetch_thumb(img.get("thumb_url") or img.get("url", ""))
+                                if isinstance(_t, bytes):
+                                    _src = "data:image/jpeg;base64," + base64.b64encode(_t).decode()
+                                else:
+                                    _src = str(_t)
+                                _cap = _html.escape(img.get("caption", "")[:50])
+                                _sel = " selected" if _already else ""
+                                _border = "outline:3px solid #10a37f;outline-offset:-3px;" if _already else ""
+                                st.markdown(
+                                    f'<div class="queue-img-cell{_sel}">'
+                                    f'<img src="{_src}" style="width:100%;max-height:220px;'
+                                    f'object-fit:contain;display:block;border-radius:8px;'
+                                    f'background:#111;{_border}">'
+                                    f'<div class="queue-img-caption">{_cap}</div>'
+                                    f'</div>',
+                                    unsafe_allow_html=True,
+                                )
+                                if not _already:
+                                    if st.button(
+                                        " ",
+                                        key=f"q_hist_{idx_m}_{i}",
+                                        help="queue-trigger",
+                                        use_container_width=True,
+                                    ):
+                                        _queue_image(img, msg_desc, msg_data_ctx)
+                                        st.session_state.studio_open = True
+                                        st.rerun()
+
+        # ── Wire up clickable images via JS ─────────────────────────────────
+        # CSS alone can't reliably overlay a button on an image in Streamlit's
+        # DOM.  Instead, a tiny zero-height iframe runs JS in the parent doc:
+        # it finds each .img-q-marker element, locates the hidden button in
+        # the same stVerticalBlock, and forwards clicks on the image to it.
+        components.html(
+            """
+            <script>
+            (function() {
+                var pd = window.parent.document;
+
+                function setup() {
+                    try {
+                        pd.querySelectorAll('.queue-img-cell:not(.selected)').forEach(function(cell) {
+                            var vb = cell.closest('[data-testid="stVerticalBlock"]');
+                            if (!vb) return;
+                            var btn = vb.querySelector('button');
+                            if (!btn || btn._willSetup) return;
+                            btn._willSetup = true;
+
+                            // Hide the button's direct-child-of-vb wrapper
+                            var dc = btn;
+                            while (dc.parentElement && dc.parentElement !== vb) dc = dc.parentElement;
+                            dc.style.setProperty('display', 'none', 'important');
+                            dc.style.setProperty('height', '0', 'important');
+
+                            // Forward image clicks to this button instance
+                            var img = cell.querySelector('img');
+                            if (img) {
+                                img.addEventListener('click', function(e) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    btn.click();
+                                });
+                            }
+                        });
+                    } catch(e) { console.warn('WILL.AI img-click:', e); }
+                }
+
+                setup();
+                setTimeout(setup, 300);
+                setTimeout(setup, 1200);
+
+                // Re-run setup synchronously on DOM additions (before browser paint)
+                new MutationObserver(function(mutations) {
+                    for (var i = 0; i < mutations.length; i++) {
+                        if (mutations[i].addedNodes.length > 0) { setup(); break; }
+                    }
+                }).observe(pd.body, {childList: true, subtree: true});
+
+            })();
+            </script>
+            """,
+            height=0,
+        )
+
+        # ── Live streaming assistant turn ───────────────────────────────────
+        # While the background LLM thread is running we show accumulated text
+        # and rerun every 300 ms.  The script finishes each cycle quickly, so
+        # the Video Studio column is interactive between polls.
+        if st.session_state._chat_streaming:
+            with st.chat_message("assistant"):
+                _buf = st.session_state._chat_stream_buffer
+                if _buf:
+                    st.markdown(_buf)
+                else:
+                    st.markdown(
+                        '<span style="color:rgba(255,255,255,0.35); font-size:0.875rem;">'
+                        "Connecting to Qwen…</span>",
+                        unsafe_allow_html=True,
+                    )
+            time.sleep(0.3)
+            st.rerun()
 
         # ── Process new user input ──────────────────────────────────────────
         if user_input:
@@ -791,64 +959,33 @@ with _msg_area:
             with st.chat_message("user"):
                 st.markdown(user_input)
 
-            try:
-                qwen_client = QwenClient(api_key=QWEN_API_KEY, model=MODEL_CHAT)
-                chat_agent  = ChatAgent(qwen_client)
-                history     = _db.get_conversation_history(st.session_state.conversation_id)
+            history = _db.get_conversation_history(st.session_state.conversation_id)
+            st.session_state._chat_stream_user_msg  = user_input
+            st.session_state._chat_stream_buffer    = ""
+            st.session_state._chat_stream_retrieved = []
+            st.session_state._chat_stream_assets    = {}
 
-                with st.chat_message("assistant"):
-                    result: dict = {}
+            _cq_new: queue.Queue = queue.Queue()
+            st.session_state._chat_stream_queue = _cq_new
+            st.session_state._chat_streaming    = True
 
-                    _thinking = st.empty()
-                    _thinking.markdown(
-                        '<span style="color:rgba(255,255,255,0.35); font-size:0.875rem;">'
-                        "Connecting to Qwen…</span>",
-                        unsafe_allow_html=True,
-                    )
+            def _chat_bg(
+                _msg=user_input, _hist=history, _q=_cq_new
+            ) -> None:
+                _result: dict = {}
+                try:
+                    _qc = QwenClient(api_key=QWEN_API_KEY, model=MODEL_CHAT)
+                    _ca = ChatAgent(_qc)
+                    for _chunk in _ca.answer_stream_internal(_msg, _hist, _result):
+                        _q.put({"type": "chunk", "text": _chunk})
+                    _q.put({"type": "done", "result": _result})
+                except Exception as _exc:
+                    _q.put({"type": "error", "detail": str(_exc)})
+                finally:
+                    _q.put(None)  # sentinel
 
-                    _gen = chat_agent.answer_stream_internal(user_input, history, result)
-                    _seen_first = [False]
-
-                    def _stream():
-                        for _chunk in _gen:
-                            if not _seen_first[0]:
-                                _thinking.empty()
-                                _seen_first[0] = True
-                            yield _chunk
-
-                    answer = st.write_stream(_stream())
-                    answer = answer if isinstance(answer, str) else "".join(answer)
-                    if not answer and result.get("answer"):
-                        answer = result["answer"]
-
-                    retrieved = result.get("retrieved_passages", [])
-                    if retrieved:
-                        with st.expander("Retrieved sources", expanded=False):
-                            for p in retrieved:
-                                snippet = (p.get("snippet") or "").strip()
-                                source  = p.get("source") or "source"
-                                doc     = p.get("doc_id") or ""
-                                if snippet:
-                                    st.markdown(f"**{source}** — {snippet}  \n_{doc}_")
-                                else:
-                                    st.markdown(f"**{source}** — {doc}")
-
-                    _turn_assets = result.get("chat_assets", {})
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": answer,
-                        "assets": _turn_assets,
-                        "retrieved_passages": retrieved,
-                    })
-                    _save_chat_turn(user_input, answer, _turn_assets, retrieved)
-
-                # Rerun so images render from history loop with stable keys
-                st.rerun()
-
-            except (AuthenticationError, APIError) as exc:
-                st.error(f"**Chat error:** {exc}")
-            except Exception as exc:
-                st.error(f"**Unexpected error:** {exc}")
+            threading.Thread(target=_chat_bg, daemon=True).start()
+            st.rerun()
 
         st.markdown(
             '<div class="chat-footer">WILL.AI · Qwen 3.7 + Live NASA Data</div>',
@@ -869,12 +1006,25 @@ if(!mc)return;
 var hbs=mc.querySelectorAll('[data-testid="stHorizontalBlock"]');
 for(var i=0;i<hbs.length;i++){{
   var hb=hbs[i],cols=hb.querySelectorAll(':scope>[data-testid="column"]');
-  if(hb.closest('[data-testid="stChatMessage"]')||cols.length!==2)continue;
+  // Skip blocks inside chat messages or nested inside a column (e.g. the inner [1,7] chat indent block)
+  if(hb.closest('[data-testid="stChatMessage"]')||hb.closest('[data-testid="column"]')||cols.length!==2)continue;
   cols[1].style.height='calc(100vh - 75px)';
   cols[1].style.maxHeight='calc(100vh - 75px)';
   cols[1].style.overflowY='auto';
   var w=cols[0].querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
-  if(w)w.scrollTop=w.scrollHeight;
+  if(w){{
+    // Override Streamlit's inline height (1200px) with !important so the
+    // page never taller than the viewport — no page scroll needed.
+    w.style.setProperty('height','calc(100vh - 75px)','important');
+    w.style.setProperty('max-height','calc(100vh - 75px)','important');
+    w.style.setProperty('overflow-y','auto','important');
+    w.scrollTop=w.scrollHeight;
+  }}
+  // Lock stMain scroll via JS inline !important — beats emotion CSS overrides.
+  var mn=doc.querySelector('[data-testid="stMain"]');
+  if(mn){{mn.style.setProperty('overflow','hidden','important');mn.scrollTop=0;}}
+  var av=doc.querySelector('[data-testid="stAppViewContainer"]');
+  if(av) av.style.setProperty('overflow','hidden','important');
   break;
 }}
 }})();
@@ -885,4 +1035,8 @@ for(var i=0;i<hbs.length;i++){{
 # ── Studio panel column ───────────────────────────────────────────────────────
 if _col_studio is not None:
     with _col_studio:
-        _render_studio_panel()
+        # Inner columns add a blank right-pad column, since CSS padding on
+        # Streamlit column elements is overridden by emotion CSS.
+        _studio_c, _studio_rpad = st.columns([8, 1])
+        with _studio_c:
+            _render_studio_panel()

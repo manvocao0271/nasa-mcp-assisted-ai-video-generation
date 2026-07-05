@@ -6,6 +6,11 @@ import streamlit as st
 _CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+/* ── Global font scale (1.6×) ──────────────────────────────────────────────── */
+html {
+    font-size: 160% !important;
+}
+
 /* ── Base ──────────────────────────────────────────────────────────────────── */
 .stApp, [data-testid="stAppViewContainer"] {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
@@ -26,8 +31,8 @@ footer { display: none !important; }
 [data-testid="stSidebar"][aria-expanded="false"],
 [data-testid="stSidebar"][aria-expanded="true"] {
     transform: translateX(0px) !important;
-    min-width: 258px !important;
-    max-width: 258px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
     background-color: #171717 !important;
     border-right: 1px solid #2a2a2a !important;
     visibility: visible !important;
@@ -53,10 +58,10 @@ footer { display: none !important; }
 [data-testid="stMainBlockContainer"],
 .stMainBlockContainer,
 .block-container {
-    max-width: 800px !important;
-    padding: 1.5rem 2rem 7rem !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
+    max-width: 100% !important;
+    padding: 2.5rem 4rem 7rem !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
     width: 100% !important;
     box-sizing: border-box !important;
 }
@@ -97,7 +102,7 @@ footer { display: none !important; }
 
 /* Assistant: compact avatar */
 [data-testid="stChatMessageAvatarAssistant"] {
-    width: 28px !important; min-width: 28px !important; height: 28px !important;
+    width: 42px !important; min-width: 42px !important; height: 42px !important;
     margin-top: 2px !important;
 }
 
@@ -148,13 +153,13 @@ footer { display: none !important; }
     border-top: none !important;
 }
 [data-testid="stBottomBlockContainer"] {
-    max-width: 800px !important;
+    max-width: 100% !important;
     width: 100% !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
     background: #212121 !important;
     border-top: none !important;
-    padding: 0.75rem 0 1rem !important;
+    padding: 0.75rem 4rem 1rem !important;
     box-sizing: border-box !important;
 }
 [data-testid="stChatInput"] [data-baseweb="textarea"] {
@@ -173,8 +178,8 @@ footer { display: none !important; }
     background: transparent !important;
     border: none !important;
     color: #c8c8c8 !important;
-    text-align: left !important;
-    justify-content: flex-start !important;
+    text-align: center !important;
+    justify-content: center !important;
     padding: 0.42rem 0.7rem !important;
     border-radius: 7px !important;
     font-size: 0.85rem !important;
@@ -183,9 +188,9 @@ footer { display: none !important; }
     min-height: unset !important;
     width: 100% !important;
     transition: background 0.1s, color 0.1s !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
 }
 [data-testid="stSidebar"] [data-testid="stBaseButton-secondary"]:hover {
     background: #2a2a2a !important;
@@ -445,6 +450,35 @@ hr.studio-hr {
     border-radius: 0 5px 5px 0;
     margin-top: 8px;
     line-height: 1.55;
+}
+
+/* ── Clickable queue images ────────────────────────────────────────────────────────────── */
+/* Rendered via st.markdown so Streamlit's native image expand is bypassed.   */
+.queue-img-cell { border-radius: 8px; overflow: hidden; }
+.queue-img-cell img { width: 100%; display: block; border-radius: 8px; }
+.queue-img-cell:not(.selected) img { cursor: pointer; }
+.queue-img-cell:not(.selected) img:hover {
+    outline: 2px solid rgba(255,255,255,0.25) !important;
+    outline-offset: -2px !important;
+}
+.queue-img-caption {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.42);
+    text-align: center;
+    padding: 4px 0 0;
+}
+/* Also suppress Streamlit's native image expand button everywhere */
+[data-testid="StyledFullScreenButton"] { display: none !important; }
+/* Hide the invisible queue-trigger button and all its wrapper divs.
+   Targets by the unique help tooltip (title attr) so no fragile DOM-depth
+   assumptions are needed — works regardless of Streamlit wrapper changes. */
+button[title="queue-trigger"] { display: none !important; pointer-events: none !important; }
+[data-testid="stVerticalBlock"] > div:has(button[title="queue-trigger"]) {
+    display: none !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    margin: 0 !important;
 }
 """
 

@@ -1,5 +1,5 @@
 
-# WILL.AI — What Infinity Looks Like AI
+# [WILL.AI](http://willai-demo.duckdns.org/) — What Infinity Looks Like AI
 
 > A multi-agent system that turns real NASA data into cinematic short films about the universe. Powered by Qwen models on Qwen Cloud, grounded by NASA's public APIs via MCP.
 
@@ -22,11 +22,9 @@ The UI has three persistent panels:
 3. **Generate** — type a prompt, click Generate; pipeline runs in the background and streams status every 2 s
 4. **Watch** — one silent clip per queued NASA image plays inline in the right panel
 
-Every frame is anchored to something real — terrain, weather, orbital context, and event data assembled into a scene.
+Every frame is anchored to something real like terrain, weather, orbital context, which all gets assembled into a scene.
 
-
-https://youtu.be/64gBpnW1y6w
-
+![alt text](image.png) ![alt text](image-1.png) ![alt text](image-2.png)
 
 ## System architecture
 
@@ -134,6 +132,19 @@ The app is deployed on Alibaba Cloud ECS (US Virginia):
 - **URL:** http://willai-demo.duckdns.org
 - **Server:** `47.85.190.101` — ecs.e-c1m1.large, 2 vCPU, 2 GB RAM, Ubuntu 22.04
 - **Stack:** Streamlit served via nginx reverse proxy on port 80
+
+### Enable HTTPS (optional)
+
+To remove the "Not secure" browser warning, add a free Let's Encrypt certificate:
+
+```bash
+# On the ECS server
+apt install -y certbot python3-certbot-nginx
+certbot --nginx -d willai-demo.duckdns.org
+```
+
+Also open port **443** in the Alibaba Cloud security group (TCP, `443/443`, `0.0.0.0/0`).  
+The URL then becomes **https://willai-demo.duckdns.org** with a valid certificate.
 
 ## Getting started
 

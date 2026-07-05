@@ -103,6 +103,13 @@ def init_session_state(session_id: str) -> None:
         ("_cleanup_done", False),
         ("pending_prompt", None),
         ("studio_open", False),
+        # Chat streaming (background thread → non-blocking, keeps studio active)
+        ("_chat_streaming", False),
+        ("_chat_stream_queue", None),
+        ("_chat_stream_buffer", ""),
+        ("_chat_stream_retrieved", []),
+        ("_chat_stream_assets", {}),
+        ("_chat_stream_user_msg", ""),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
