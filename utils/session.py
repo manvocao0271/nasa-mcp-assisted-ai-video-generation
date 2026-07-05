@@ -79,7 +79,12 @@ def init_session_state(session_id: str) -> None:
         st.session_state.run_db = RunDB(db_path=session_dir / "runs.db")
 
     if "conversation_id" not in st.session_state:
-        st.session_state.conversation_id = str(uuid.uuid4())
+        # Restore the most-recent conversation after a hard browser refresh;
+        # fall back to a fresh UUID when this is a brand-new session.
+        _recent = st.session_state.run_db.list_conversations()
+        st.session_state.conversation_id = (
+            _recent[0]["conversation_id"] if _recent else str(uuid.uuid4())
+        )
 
     if "session_id" not in st.session_state:
         st.session_state.session_id = session_id
