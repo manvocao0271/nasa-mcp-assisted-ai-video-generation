@@ -142,13 +142,17 @@ class VideoGen:
 
     def _submit_job(self, prompt: str, duration_seconds: int, ref_image_url: str = "") -> str:
         raw_url = ref_image_url.strip() if ref_image_url else ""
-        # Resolve the reference image to a data URI so the model backend never
-        # has to fetch from hosts that block external servers (e.g. images-assets.nasa.gov).
-        # Fall back to the raw URL if the download fails (e.g. non-NASA public URLs).
-        if raw_url:
-            media_url = self._fetch_as_data_uri(raw_url) or ""
+
+        # Wan 2.7 i2v accepts a plain HTTPS URL in media[0].url — use the raw URL
+        # directly whenever possible.  Only fall back to a base64 data URI for
+        # NASA Image Library assets whose large/orig variants return 403 on external
+        # servers; in those cases _fetch_as_data_uri resolves to a thumb variant.
+        _nasa_image_lib = "images-assets.nasa.gov" in raw_url
+        if raw_url and _nasa_image_lib:
+            media_url: str = self._fetch_as_data_uri(raw_url) or raw_url
         else:
-            media_url = ""
+            media_url = raw_url  # pass URL directly; Wan API fetches it
+
         final_prompt = f"{prompt}\n\n{self._build_motion_directives(duration_seconds)}"
 
         def _i2v_body(model: str) -> dict:
@@ -216,7 +220,8 @@ class VideoGen:
         _submit_timeout = httpx.Timeout(connect=15, read=60, write=300, pool=15)
         with httpx.Client(timeout=_submit_timeout) as client:
             if media_url:
-                print(f"[VideoGen] I2V mode — reference image resolved ({len(media_url)} chars data URI)")
+                _uri_type = "data URI" if media_url.startswith("data:") else "URL"
+                print(f"[VideoGen] I2V mode — reference image as {_uri_type} ({len(media_url)} chars)")
                 resp = client.post(_SUBMIT_URL, json=_i2v_body(MODEL_I2V), headers=self._headers)
                 if not resp.is_success:
                     err = f"{resp.status_code}: {resp.text[:200]}"
