@@ -592,6 +592,11 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
+    _studio_label = "✕  Close Studio" if st.session_state.get("studio_open") else "🎬  Video Studio"
+    if st.button(_studio_label, use_container_width=True, key="toggle_studio_btn"):
+        st.session_state.studio_open = not st.session_state.get("studio_open", False)
+        st.rerun()
+
     st.markdown('<hr>', unsafe_allow_html=True)
 
     # ── Conversation list grouped by date ──────────────────────────────────
@@ -638,74 +643,50 @@ with st.sidebar:
 
 
 
-# ── Dynamic CSS: expand layout + align input bar when studio is open ──────────
+# ── Always-on CSS: scroll lock + chat container styling ──────────────────────
+# The chat always uses its own internal scroll container so the page never
+# scrolls. Applied regardless of studio state.
 _studio_open = st.session_state.get("studio_open", False)
-if _studio_open:
-    # CSS-based positioning (sticky/fixed) fails reliably in Streamlit because
-    # stAppViewContainer applies a CSS transform for sidebar animations, which
-    # breaks position:fixed, and stMain's overflow settings vary across builds,
-    # making position:sticky unreliable. The only guaranteed approach is to give
-    # the chat its OWN scroll container (st.container(height=X)) so the page
-    # itself never needs to scroll — the studio column stays in place naturally.
-    st.markdown(
-        """<style>
-        /* ── Disable page scroll when studio is open ─────────────────── */
-        html, body,
-        [data-testid="stAppViewContainer"],
-        [data-testid="stMain"] {
-            overflow: hidden !important;
-            max-height: 100vh !important;
-        }
-
-        /* ── Full-width layout, no vertical padding ─────────────────── */
-        [data-testid="stMainBlockContainer"],
-        .stMainBlockContainer,
-        .block-container {
-            max-width: 100% !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            box-sizing: border-box !important;
-        }
-
-        /* ── Chat scroll container: height + scrollbar only ─────────── */
-        [data-testid="stVerticalBlockBorderWrapper"] {
-            height: calc(100vh - 75px) !important;
-            max-height: calc(100vh - 75px) !important;
-            border: none !important;
-            border-radius: 0 !important;
-            background: transparent !important;
-            scrollbar-gutter: stable !important;
-            box-sizing: border-box !important;
-        }
-
-        /* ── Studio column: background, border, scrolling ─────────── */
-        /* Padding is applied via JS (cols[0/1].style) not CSS, because   */
-        /* Streamlit's React layer overrides column padding via CSS.       */
-        /* The :not([data-testid="column"] ...) guard prevents this rule from
-           accidentally styling the inner padding column added for chat indent. */
-        [data-testid="stHorizontalBlock"]:not([data-testid="stChatMessage"] [data-testid="stHorizontalBlock"]):not([data-testid="column"] [data-testid="stHorizontalBlock"]) > [data-testid="column"]:last-child:not(:first-child) {
-            background: #212121 !important;
-            border-left: 1px solid #2a2a2a !important;
-            overflow-y: auto !important;
-            scrollbar-gutter: stable !important;
-            padding: 0 3rem 1rem 1rem !important;
-            box-sizing: border-box !important;
-        }
-
-        /* ── Bottom bar ─────────────────────────────────────────────── */
-        [data-testid="stBottom"] { z-index: 200 !important; }
-        /* gap="medium" = 2rem, shared between 2 cols, so chat column is
-           (vw-300-2rem)*11/19 wide. Accounting for that gap keeps the
-           input bar's right content edge flush with the chat log's right. */
-        [data-testid="stBottomBlockContainer"] {
-            max-width: 100% !important;
-            padding-left: 8.5rem !important;
-            padding-right: calc((100vw - 300px) * 0.421 + .8rem) !important;
-            box-sizing: border-box !important;
-        }
-        </style>""",
-        unsafe_allow_html=True,
-    )
+st.markdown(
+    f"""<style>
+    /* ── Lock page scroll always ────────────────────────────────────── */
+    html, body,
+    [data-testid="stApp"],
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMainBlockContainer"] {{
+        overflow: hidden !important;
+        max-height: 100vh !important;
+        padding-bottom: 0 !important;
+    }}
+    [data-testid="stMainBlockContainer"],
+    .stMainBlockContainer,
+    .block-container {{
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-sizing: border-box !important;
+    }}
+    /* ── Chat scroll container ───────────────────────────────────────── */
+    [data-testid="stVerticalBlockBorderWrapper"] {{
+        height: calc(100vh - 75px) !important;
+        max-height: calc(100vh - 75px) !important;
+        border: 1px solid rgba(255,255,255,0.15) !important;
+        border-radius: 12px !important;
+        background: transparent !important;
+        scrollbar-gutter: stable !important;
+        box-sizing: border-box !important;
+    }}
+    /* ── Bottom bar ──────────────────────────────────────────────────── */
+    [data-testid="stBottom"] {{ z-index: 200 !important; }}
+    [data-testid="stBottomBlockContainer"] {{
+        max-width: 100% !important;
+        {'padding-left: calc((100vw - 300px) * 0.0772 + 2rem) !important; padding-right: calc((100vw - 300px) * 0.4596 + 1rem) !important;' if _studio_open else 'padding-left: calc((100vw - 300px) * 0.2877 + 21.74px) !important; padding-right: calc((100vw - 300px) * 0.2491 + 25.7px) !important;'}
+        box-sizing: border-box !important;
+    }}
+    {'/* ── Studio column ── */ [data-testid="stHorizontalBlock"]:not([data-testid="stChatMessage"] [data-testid="stHorizontalBlock"]):not([data-testid="column"] [data-testid="stHorizontalBlock"]) > [data-testid="column"]:last-child:not(:first-child) { background: #212121 !important; border-left: 1px solid #2a2a2a !important; overflow-y: auto !important; scrollbar-gutter: stable !important; padding: 0 3rem 1rem 1rem !important; box-sizing: border-box !important; }' if _studio_open else ''}
+    </style>""",
+    unsafe_allow_html=True,
+)
 
 # ── Chat input (always rendered at page bottom by Streamlit) ──────────────────
 user_input = st.chat_input(
@@ -719,31 +700,36 @@ if not user_input and st.session_state.get("pending_prompt"):
     st.session_state.pending_prompt = None
 
 # ── Column layout ─────────────────────────────────────────────────────────────
+# Studio open:  [11, 8]     — chat left, studio right
+# Studio closed: [4, 11, 4] — chat centred, equal spacers either side
+# Always render 3 columns so React never unmounts/remounts the column set
+# (which would flash a duplicate layout during the toggle transition).
+# Studio open:  tiny left pad + chat + studio  →  [0.1, 11, 8]
+# Studio closed: balanced pads + chat          →  [4,   11, 4]
 if _studio_open:
-    _col_chat, _col_studio = st.columns([11, 8], gap="medium")
+    _col_left, _col_chat, _col_studio = st.columns([0.1, 11, 8], gap="medium")
 else:
-    _col_chat   = st.container()
-    _col_studio = None
+    _col_left, _col_chat, _col_studio = st.columns([4, 11, 4], gap="medium")
 
-# When studio is open, the chat messages live inside a fixed-height scroll
-# container (_msg_area). This gives the chat its own independent scroll
-# context so the page itself never scrolls — the studio column stays in
-# place without any CSS positioning tricks. We create _msg_area inside
-# _col_chat; Streamlit preserves the DeltaGenerator association after the
-# `with` exits, so we render the content in a separate `with _msg_area:`.
+# MessageScroller pattern: the scroll viewport (_msg_area / stVerticalBlockBorderWrapper)
+# wraps the FULL chat column width so its scrollbar sits at the right edge of the
+# chat column (just before the studio panel). The [1,7] indent columns live INSIDE
+# the viewport so the left-padding scrolls with the content.
 with _col_chat:
-    if _studio_open:
-        # Blank padding column (2 units) + actual chat content (8 units).
-        # CSS/JS cannot reliably override Streamlit's emotion column styles,
-        # so a real Streamlit column is the only way to create left indent.
-        _pad_col, _chat_inner = st.columns([1, 7], gap=None)
-        with _chat_inner:
-            _msg_area = st.container(height=1200, border=False)
-    else:
-        _msg_area = st.container()
+    # Always use a height-constrained bordered container so the chat scrolls
+    # internally and the page itself never scrolls.
+    _msg_area = st.container(height=1200, border=True)
 
-# ── Chat messages (inside _msg_area → _col_chat) ──────────────────────────────
+# Left-indent columns are created inside the scroll viewport; _content_area is
+# the render target for all messages.
+# Both modes use the same [1, 6, 0.5] inner shim so text layout is identical.
+# Centering in non-studio mode comes from the [4, 11, 4] outer columns.
 with _msg_area:
+    _pad_col, _chat_inner, _rpad_col = st.columns([1, 6, 0.5], gap=None)
+_content_area = _chat_inner
+
+# ── Chat messages (inside _content_area → _msg_area → _col_chat) ──────────────
+with _content_area:
     if not st.session_state.messages and not user_input:
         # ── Welcome screen ─────────────────────────────────────────────────
         st.markdown(
@@ -767,11 +753,6 @@ with _msg_area:
                     st.session_state.pending_prompt = prompt
                     st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown(
-            '<div class="chat-footer">WILL.AI · Qwen 3.7 + Live NASA Data</div>',
-            unsafe_allow_html=True,
-        )
 
     else:
         # ── Drain active chat stream queue ─────────────────────────────────
@@ -844,14 +825,37 @@ with _msg_area:
                     msg_data_ctx = message.get("assets", {}).get("data", {})
                     msg_desc     = message.get("content", "")
                     if msg_imgs:
+                        _VIDEO_EXTS = (".mp4", ".webm", ".mov", ".avi", ".m4v")
                         _img_cols = st.columns(min(len(msg_imgs), 3))
                         for i, (_ic, img) in enumerate(zip(_img_cols, msg_imgs[:3])):
                             with _ic:
+                                _asset_url = img.get("url", "")
+                                _is_video = _asset_url.lower().split("?")[0].endswith(_VIDEO_EXTS)
                                 _already = any(
-                                    item["url"] == img.get("url", "")
+                                    item["url"] == _asset_url
                                     for item in st.session_state.video_queue
                                 )
-                                _t = fetch_thumb(img.get("thumb_url") or img.get("url", ""))
+                                _cap = _html.escape(img.get("caption", "")[:50])
+                                if _is_video:
+                                    # NASA APOD sometimes returns a video — display it inline.
+                                    # Videos are not added to the image queue (AI pipeline
+                                    # needs static reference frames, not a pre-made clip).
+                                    st.markdown(
+                                        f'<div class="queue-img-cell">'
+                                        f'<video src="{_html.escape(_asset_url)}" controls '
+                                        f'style="width:100%;height:auto;display:block;'
+                                        f'border-radius:8px;">'
+                                        f'</video>'
+                                        f'<div class="queue-img-caption" style="display:flex;'
+                                        f'align-items:center;gap:4px;">'
+                                        f'<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" '
+                                        f'style="opacity:.5;flex-shrink:0"><path d="M8 5v14l11-7z"/></svg>'
+                                        f'{_cap}</div></div>',
+                                        unsafe_allow_html=True,
+                                    )
+                                    # no queue button for videos
+                                    continue
+                                _t = fetch_thumb(img.get("thumb_url") or _asset_url)
                                 if isinstance(_t, bytes):
                                     _src = "data:image/jpeg;base64," + base64.b64encode(_t).decode()
                                 else:
@@ -861,9 +865,9 @@ with _msg_area:
                                 _border = "outline:3px solid #10a37f;outline-offset:-3px;" if _already else ""
                                 st.markdown(
                                     f'<div class="queue-img-cell{_sel}">'
-                                    f'<img src="{_src}" style="width:100%;max-height:220px;'
-                                    f'object-fit:contain;display:block;border-radius:8px;'
-                                    f'background:#111;{_border}">'
+                                    f'<img src="{_src}" style="width:100%;height:auto;'
+                                    f'display:block;border-radius:8px;{_border}">'
+
                                     f'<div class="queue-img-caption">{_cap}</div>'
                                     f'</div>',
                                     unsafe_allow_html=True,
@@ -946,8 +950,30 @@ with _msg_area:
                     st.markdown(_buf)
                 else:
                     st.markdown(
-                        '<span style="color:rgba(255,255,255,0.35); font-size:0.875rem;">'
-                        "Connecting to Qwen…</span>",
+                        """
+<style>
+@keyframes _will-spin{to{transform:rotate(360deg)}}
+@keyframes _will-shimmer{0%{background-position:-200% center}to{background-position:200% center}}
+.will-marker{display:inline-flex;align-items:center;gap:6px;padding:2px 0;user-select:none}
+.will-marker-icon{display:flex;align-items:center;flex-shrink:0;color:rgba(255,255,255,.35)}
+.will-marker-icon svg{animation:_will-spin .85s linear infinite}
+.will-marker-text{
+  font-size:.8rem;letter-spacing:.01em;
+  background:linear-gradient(90deg,rgba(255,255,255,.2) 20%,rgba(255,255,255,.6) 50%,rgba(255,255,255,.2) 80%);
+  background-size:200% auto;
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  animation:_will-shimmer 1.4s linear infinite;
+}
+</style>
+<div class="will-marker" role="status">
+  <span class="will-marker-icon" aria-hidden="true">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-dasharray="52 20"/>
+    </svg>
+  </span>
+  <span class="will-marker-text">Connecting to Qwen…</span>
+</div>""",
                         unsafe_allow_html=True,
                     )
             time.sleep(0.3)
@@ -987,54 +1013,66 @@ with _msg_area:
             threading.Thread(target=_chat_bg, daemon=True).start()
             st.rerun()
 
-        st.markdown(
-            '<div class="chat-footer">WILL.AI · Qwen 3.7 + Live NASA Data</div>',
-            unsafe_allow_html=True,
-        )
-
-    # ── JS: set studio column height + auto-scroll chat to bottom ────────────
-    # Timestamp in the script content forces Streamlit to reload the iframe
-    # on every render, so the studio column is re-styled and the chat
-    # container scrolls to the bottom after each new message.
-    if _studio_open:
-        components.html(
-            f"""<script>
+    # ── JS: clamp column heights + scroll chat to bottom (runs every render) ──
+    # Handles both [11,8] (studio-open, 2 cols) and [4,11,4] (studio-closed, 3 cols).
+    # chat column index: 0 for 2-col layout, 1 for 3-col layout.
+    components.html(
+        f"""<script>
 (function(){{var _t={time.time():.0f};
-var doc=window.parent.document,
-    mc=doc.querySelector('[data-testid="stMainBlockContainer"]');
+var doc=window.parent.document;
+
+// ── 1. Persist scroll lock in <head> ─────────────────────────────────────────
+var _ss=doc.getElementById('_will_scroll_lock');
+if(!_ss){{_ss=doc.createElement('style');_ss.id='_will_scroll_lock';doc.head.appendChild(_ss);}}
+_ss.textContent='html,body,[data-testid="stApp"],[data-testid="stAppViewContainer"],[data-testid="stMainBlockContainer"]{{overflow:hidden!important;max-height:100vh!important;padding-bottom:0!important;}}';
+
+// ── 2. Reset scroll on containers ────────────────────────────────────────────
+['stApp','stAppViewContainer','stMainBlockContainer'].forEach(function(id){{
+  var el=doc.querySelector('[data-testid="'+id+'"]');
+  if(el)el.scrollTop=0;
+}});
+
+// ── 3. Find outer horizontal block and clamp columns ─────────────────────────
+var mc=doc.querySelector('[data-testid="stMainBlockContainer"]');
 if(!mc)return;
 var hbs=mc.querySelectorAll('[data-testid="stHorizontalBlock"]');
 for(var i=0;i<hbs.length;i++){{
   var hb=hbs[i],cols=hb.querySelectorAll(':scope>[data-testid="column"]');
-  // Skip blocks inside chat messages or nested inside a column (e.g. the inner [1,7] chat indent block)
-  if(hb.closest('[data-testid="stChatMessage"]')||hb.closest('[data-testid="column"]')||cols.length!==2)continue;
-  cols[1].style.height='calc(100vh - 75px)';
-  cols[1].style.maxHeight='calc(100vh - 75px)';
-  cols[1].style.overflowY='auto';
-  var w=cols[0].querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
-  if(w){{
-    // Override Streamlit's inline height (1200px) with !important so the
-    // page never taller than the viewport — no page scroll needed.
-    w.style.setProperty('height','calc(100vh - 75px)','important');
-    w.style.setProperty('max-height','calc(100vh - 75px)','important');
-    w.style.setProperty('overflow-y','auto','important');
-    w.scrollTop=w.scrollHeight;
-  }}
-  // Lock stMain scroll via JS inline !important — beats emotion CSS overrides.
-  var mn=doc.querySelector('[data-testid="stMain"]');
-  if(mn){{mn.style.setProperty('overflow','hidden','important');mn.scrollTop=0;}}
-  var av=doc.querySelector('[data-testid="stAppViewContainer"]');
-  if(av) av.style.setProperty('overflow','hidden','important');
+  if(hb.closest('[data-testid="stChatMessage"]')||hb.closest('[data-testid="column"]'))continue;
+  // Always 3 cols: [left, chat, studio] — chat is always cols[1]
+  if(cols.length!==3)continue;
+  var chatCol=cols[1];
+  hb.style.setProperty('height','calc(100vh - 75px)','important');
+  hb.style.setProperty('max-height','calc(100vh - 75px)','important');
+  hb.style.setProperty('overflow','hidden','important');
+  chatCol.style.setProperty('height','calc(100vh - 75px)','important');
+  chatCol.style.setProperty('max-height','calc(100vh - 75px)','important');
+  chatCol.style.setProperty('overflow','hidden','important');
+  cols[2].style.setProperty('height','calc(100vh - 75px)','important');
+  cols[2].style.setProperty('max-height','calc(100vh - 75px)','important');
+  cols[2].style.setProperty('overflow-y','auto','important');
+  // Find chat scroll container: stVerticalBlockBorderWrapper or chatCol itself
+  var scrollEl=chatCol.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+  if(!scrollEl)scrollEl=chatCol;
+  scrollEl.style.setProperty('height','calc(100vh - 75px)','important');
+  scrollEl.style.setProperty('max-height','calc(100vh - 75px)','important');
+  scrollEl.style.setProperty('overflow-y','auto','important');
+  // Scroll to bottom after layout settles
+  window.parent.requestAnimationFrame(function(){{
+    window.parent.requestAnimationFrame(function(){{
+      scrollEl.scrollTop=scrollEl.scrollHeight;
+    }});
+  }});
   break;
 }}
 }})();
 </script>""",
-            height=0,
-        )
+        height=0,
+    )
 
 # ── Studio panel column ───────────────────────────────────────────────────────
-if _col_studio is not None:
-    with _col_studio:
+with _col_studio:
+    if _studio_open:
         # Inner columns add a blank right-pad column, since CSS padding on
         # Streamlit column elements is overridden by emotion CSS.
         _studio_c, _studio_rpad = st.columns([8, 1])

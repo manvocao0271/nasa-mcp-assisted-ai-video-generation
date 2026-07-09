@@ -194,6 +194,53 @@ uv run pytest                          # unit + integration (no network)
 uv run pytest -m live                  # live NASA API round-trips (needs NASA_API_KEY)
 ```
 
+## UI layout notes
+
+When the Video Studio panel is open the app switches to a locked-viewport mode so neither the chat nor the studio panel causes the browser page to scroll.
+
+### How page-scroll locking works
+
+Streamlit's DOM structure (as of Streamlit 1.x) does **not** expose a `[data-testid="stMain"]` element. The actual scroll containers are:
+
+| Element | Role |
+|---|---|
+| `[data-testid="stApp"]` | Root app wrapper |
+| `[data-testid="stAppViewContainer"]` | Main viewport container — this is what the browser scrolls |
+| `[data-testid="stMainBlockContainer"]` | Block layout container — can grow taller than viewport |
+
+When the studio opens, `pages/chat.py` injects a persistent `<style id="_will_scroll_lock">` into `<head>` via `components.html` + `window.parent.document`:
+
+```css
+html, body,
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stMainBlockContainer"] {
+  overflow: hidden !important;
+  max-height: 100vh !important;
+  padding-bottom: 0 !important;
+}
+```
+
+**Why `<head>` injection instead of `st.markdown()`?** Streamlit's emotion CSS engine re-applies React component styles on every re-render, overwriting inline `style.setProperty` calls and even `st.markdown` `<style>` blocks in `<body>`. A `<style>` tag appended to `<head>` survives React re-renders because React only reconciles its own mounted subtree inside `<body>`.
+
+**Why `padding-bottom: 0`?** Streamlit adds bottom padding to `stMainBlockContainer` equal to the height of the floating input bar (~73 px) so content is not hidden behind it. This extra padding makes the block container taller than the viewport, triggering a scrollbar. Zeroing it out keeps the total height at exactly `100vh`.
+
+### Chat column layout (`[1, 6, 0.5]` inner columns)
+
+Inside the 11-unit chat column, content is placed in a three-column shim `[1, 6, 0.5]` with `gap=None`. The blank outer columns act as padding that cannot be overridden by emotion CSS (unlike `padding` CSS on column elements):
+
+- **Left pad (1 unit)** — aligns bot avatar with input bar left edge
+- **Content (6 units)** — all messages and media
+- **Right pad (0.5 units)** — breathing room between content and chat scrollbar
+
+The input bar padding is derived from the same column ratios so left/right edges align exactly:
+
+```
+padding-left:  calc((100vw - 300px) * 0.0772 + 2rem)
+padding-right: calc((100vw - 300px) * 0.4596 + 1rem)
+```
+
+
 ## Project structure
 
 ```

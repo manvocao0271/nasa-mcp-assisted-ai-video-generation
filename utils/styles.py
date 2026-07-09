@@ -159,7 +159,15 @@ footer { display: none !important; }
     margin-right: 0 !important;
     background: #212121 !important;
     border-top: none !important;
-    padding: 0.75rem 4rem 1rem !important;
+    /* Centred layout: [4,11,4] outer + [1,6,0.5] inner shim (same as studio-open).
+       padding-left  = outer_spacer(4/19) + gap + inner_pad(1/7.5 of content_col)
+                     = (vw-300)*0.2877 + 21.74px
+       padding-right = outer_spacer(4/19) + gap + inner_rpad(0.5/7.5 of content_col)
+                     = (vw-300)*0.2491 + 25.7px                                  */
+    padding-top: 0.75rem !important;
+    padding-bottom: 1rem !important;
+    padding-left: calc((100vw - 300px) * 0.2877 + 21.74px) !important;
+    padding-right: calc((100vw - 300px) * 0.2491 + 25.7px) !important;
     box-sizing: border-box !important;
 }
 [data-testid="stChatInput"] [data-baseweb="textarea"] {
