@@ -1,1 +1,1 @@
-"""Multi-agent pipeline for WILL.AI video generation."""
+"""Multi-agent pipeline for WILL.ai video generation."""

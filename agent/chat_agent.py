@@ -16,7 +16,7 @@ from agent.retriever import Retriever
 
 def _build_system_prompt() -> str:
     today = date.today().strftime("%B %d, %Y")
-    return f"""You are WILL.AI (What Infinity Looks Like AI), an expert astronomy guide and universe educator backed by live NASA data.
+    return f"""You are WILL.ai (What Infinity Looks Like AI), an expert astronomy guide and universe educator backed by live NASA data.
 Today's date is {today}.
 
 When NASA data is provided below in a "Retrieved NASA data" block, treat it as ground truth

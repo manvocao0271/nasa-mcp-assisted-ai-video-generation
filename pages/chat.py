@@ -1,4 +1,4 @@
-"""Chat page + integrated Video Studio side panel — WILL.AI."""
+"""Chat page + integrated Video Studio side panel — WILL.ai."""
 from __future__ import annotations
 
 import os
@@ -37,6 +37,12 @@ _SUGGESTIONS = [
     "Show me the latest solar flare activity",
     "Find exoplanets in the habitable zone",
     "What asteroids are passing near Earth this week?",
+    "Show me the latest coronal mass ejections",
+    "Fetch recent EPIC Earth images from space",
+    "Which near-Earth objects are potentially hazardous?",
+    "What are the most recently discovered exoplanets?",
+    "Show me a geomagnetic storm from the past month",
+    "Find super-Earths with similar mass to our planet",
 ]
 
 # ── Pipeline stage definitions ─────────────────────────────────────────────────
@@ -567,21 +573,12 @@ if "_studio_state_restored" not in st.session_state:
 with st.sidebar:
     st.markdown(
         """
-        <div style="padding:6px 4px 16px; display:flex; flex-direction:column; gap:3px;">
-            <div style="font-size:1.15rem; font-weight:700; color:#ececec;
-                        letter-spacing:-0.02em;">WILL.AI</div>
-            <div style="font-size:0.68rem; color:rgba(255,255,255,0.3);">What Infinity Looks Like</div>
-        </div>
-        <div style="display:inline-flex; align-items:center; gap:5px;
-            background:linear-gradient(90deg,#FF6A00,#EE0979);
-            color:#fff; font-size:10px; font-weight:700; letter-spacing:0.04em;
-            padding:3px 8px; border-radius:5px; margin-bottom:12px;">
-            &#9729; Powered by Alibaba Cloud
-        </div>
-        <div style="font-size:10px; color:rgba(255,255,255,0.28);
-                    margin-bottom:14px; line-height:1.6;">
-            LLM &amp; Video: DashScope API<br>
-            Models: Qwen 3.7-plus · Wan 2.7 i2v/t2v
+        <div style="padding:10px 4px 12px; display:flex; flex-direction:column;
+                    align-items:center; gap:4px; text-align:center;">
+            <div style="font-size:1.65rem; font-weight:800; color:#ececec;
+                        letter-spacing:-0.03em; line-height:1.1;">WILL.ai</div>
+            <div style="font-size:0.65rem; color:rgba(255,255,255,0.3);
+                        letter-spacing:0.04em;">What Infinity Looks Like</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -592,7 +589,7 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-    _studio_label = "✕  Close Studio" if st.session_state.get("studio_open") else "🎬  Video Studio"
+    _studio_label = "✕  Close Studio" if st.session_state.get("studio_open") else "Video Studio"
     if st.button(_studio_label, use_container_width=True, key="toggle_studio_btn"):
         st.session_state.studio_open = not st.session_state.get("studio_open", False)
         st.rerun()
@@ -641,6 +638,26 @@ with st.sidebar:
     else:
         st.caption("No conversations yet.")
 
+    # ── Branding footer (bottom of sidebar) ───────────────────────────────
+    st.markdown('<div style="flex:1;"></div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div style="padding:14px 4px 6px; border-top:1px solid #2a2a2a; margin-top:auto;">
+            <div style="display:inline-flex; align-items:center; gap:5px;
+                background:linear-gradient(90deg,#FF6A00,#EE0979);
+                color:#fff; font-size:9px; font-weight:700; letter-spacing:0.04em;
+                padding:3px 8px; border-radius:5px; margin-bottom:8px;">
+                &#9729; Powered by Alibaba Cloud
+            </div>
+            <div style="font-size:9px; color:rgba(255,255,255,0.25); line-height:1.7;">
+                LLM &amp; Video: DashScope API<br>
+                Models: Qwen 3.7-plus · Wan 2.7 i2v/t2v
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 
 # ── Always-on CSS: scroll lock + chat container styling ──────────────────────
@@ -666,24 +683,34 @@ st.markdown(
         margin: 0 !important;
         box-sizing: border-box !important;
     }}
-    /* ── Chat scroll container ───────────────────────────────────────── */
+    /* ── Chat border is drawn by JS on chatCol ────────────────────── */
+    /* Strip Streamlit's own border on the wrapper so it doesn't double up */
     [data-testid="stVerticalBlockBorderWrapper"] {{
-        height: calc(100vh - 75px) !important;
-        max-height: calc(100vh - 75px) !important;
-        border: 1px solid rgba(255,255,255,0.15) !important;
-        border-radius: 12px !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
         background: transparent !important;
         scrollbar-gutter: stable !important;
         box-sizing: border-box !important;
     }}
     /* ── Bottom bar ──────────────────────────────────────────────────── */
-    [data-testid="stBottom"] {{ z-index: 200 !important; }}
+    /* stBottom sits on top of the chat container's bottom border.
+       A transparent-to-opaque gradient at the top of stBottom lets the
+       border show through the first 16px of the bar's background. */
+    [data-testid="stBottom"] {{
+        z-index: 200 !important;
+        background: linear-gradient(to bottom,
+            transparent 0px,
+            #000000 16px) !important;
+        background-color: transparent !important;
+    }}
     [data-testid="stBottomBlockContainer"] {{
         max-width: 100% !important;
         {'padding-left: calc((100vw - 300px) * 0.0772 + 2rem) !important; padding-right: calc((100vw - 300px) * 0.4596 + 1rem) !important;' if _studio_open else 'padding-left: calc((100vw - 300px) * 0.2877 + 21.74px) !important; padding-right: calc((100vw - 300px) * 0.2491 + 25.7px) !important;'}
         box-sizing: border-box !important;
     }}
-    {'/* ── Studio column ── */ [data-testid="stHorizontalBlock"]:not([data-testid="stChatMessage"] [data-testid="stHorizontalBlock"]):not([data-testid="column"] [data-testid="stHorizontalBlock"]) > [data-testid="column"]:last-child:not(:first-child) { background: #212121 !important; border-left: 1px solid #2a2a2a !important; overflow-y: auto !important; scrollbar-gutter: stable !important; padding: 0 3rem 1rem 1rem !important; box-sizing: border-box !important; }' if _studio_open else ''}
+    {'/* ── Studio column border wrapper ── */ [data-testid="stHorizontalBlock"]:not([data-testid="stChatMessage"] [data-testid="stHorizontalBlock"]):not([data-testid="stColumn"] [data-testid="stHorizontalBlock"]) > [data-testid="stColumn"]:last-child:not(:first-child) [data-testid="stVerticalBlockBorderWrapper"] { border: none !important; outline: none !important; height: 100% !important; max-height: 100% !important; }' if _studio_open else ''}
     </style>""",
     unsafe_allow_html=True,
 )
@@ -718,7 +745,7 @@ else:
 with _col_chat:
     # Always use a height-constrained bordered container so the chat scrolls
     # internally and the page itself never scrolls.
-    _msg_area = st.container(height=1200, border=True)
+    _msg_area = st.container(height=10000, border=True)
 
 # Left-indent columns are created inside the scroll viewport; _content_area is
 # the render target for all messages.
@@ -734,25 +761,162 @@ with _content_area:
         # ── Welcome screen ─────────────────────────────────────────────────
         st.markdown(
             """
-            <div style="height:30vh; display:flex; flex-direction:column;
+            <div style="display:flex; flex-direction:column;
                         align-items:center; justify-content:flex-end;
-                        text-align:center; gap:0.9rem; padding-bottom:1.5rem;">
+                        text-align:center; gap:0.65rem; padding:10vh 0 1rem;">
                 <p style="font-size:2rem; font-weight:700; color:#ececec;
                           margin:0; letter-spacing:-0.03em; line-height:1.1;">
                     What can I help with?
+                </p>
+                <p style="font-size:0.82rem; color:rgba(255,255,255,0.38);
+                          margin:0; max-width:520px; line-height:1.65;">
+                    How it works: ask anything about the universe and WILL.ai will answer with NASA-backed data. Then choose what WILL.ai can make into a video.
                 </p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        c1, c2 = st.columns(2, gap="small")
-        for i, (col, prompt) in enumerate(zip([c1, c2, c1, c2], _SUGGESTIONS)):
-            with col:
-                st.markdown('<div class="suggest-card">', unsafe_allow_html=True)
-                if st.button(prompt, use_container_width=True, key=f"sug_{i}"):
-                    st.session_state.pending_prompt = prompt
-                    st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
+
+        # Vertical sliding carousel — rendered FIRST so it sits directly under
+        # the intro text with no gap. The hidden Streamlit buttons come AFTER in
+        # the layout so they don't push the carousel down.
+        # Infinite loop: 3 copies, start in middle copy (offset N), snap on transitionend.
+        _sug_json = json.dumps(_SUGGESTIONS)
+        components.html(
+            f"""<style>
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{background:transparent;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;}}
+.wrap{{width:60%;margin:0 auto;}}
+.viewport{{
+  overflow:hidden;position:relative;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 18%,black 82%,transparent 100%);
+  mask-image:linear-gradient(to bottom,transparent 0%,black 18%,black 82%,transparent 100%);
+}}
+.track{{display:flex;flex-direction:column;gap:8px;will-change:transform;}}
+.track.animating{{transition:transform .32s cubic-bezier(.4,0,.2,1);}}
+.item{{
+  background:#2a2a2a;border:1px solid #3a3a3a;border-radius:10px;
+  color:#d1d1d1;padding:11px 16px;cursor:pointer;text-align:center;
+  font-size:14px;line-height:1.45;
+  transition:background .15s,border-color .15s,color .15s;
+  width:100%;font-family:inherit;flex-shrink:0;display:block;
+}}
+.item:hover{{background:#333;border-color:#505050;color:#fff;}}
+.item:active{{background:#3a3a3a;}}
+</style>
+<div class="wrap">
+  <div class="viewport" id="vp"><div class="track" id="tr"></div></div>
+</div>
+<script>
+(function(){{
+  var SUGS={_sug_json};
+  var N=SUGS.length;
+  var VISIBLE=5;
+  var itemH=0;
+  var current=N;
+  var tr=document.getElementById('tr');
+  var vp=document.getElementById('vp');
+
+  for(var copy=0;copy<3;copy++){{
+    SUGS.forEach(function(s){{
+      var btn=document.createElement('button');
+      btn.className='item';
+      btn.textContent=s;
+      (function(text){{btn.addEventListener('click',function(){{triggerSug(text);}})}})(s);
+      tr.appendChild(btn);
+    }});
+  }}
+
+  function setPos(animate){{
+    if(animate){{tr.classList.add('animating');}}
+    else{{tr.classList.remove('animating');void tr.offsetHeight;}}
+    tr.style.transform='translateY(-'+(current*itemH)+'px)';
+  }}
+
+  tr.addEventListener('transitionend',function(){{
+    if(current>=2*N){{current-=N;setPos(false);}}
+    else if(current<N){{current+=N;setPos(false);}}
+  }});
+
+  function measure(){{
+    var items=tr.querySelectorAll('.item');
+    if(!items.length)return false;
+    var h=items[0].offsetHeight;
+    if(!h)return false;
+    itemH=h+8;
+    vp.style.height=(VISIBLE*itemH-8)+'px';
+    return true;
+  }}
+
+  vp.addEventListener('wheel',function(e){{
+    e.preventDefault();
+    current+=(e.deltaY>0)?1:-1;
+    setPos(true);
+  }},{{passive:false}});
+
+  function triggerSug(text){{
+    var doc=window.parent.document;
+    var wrappers=doc.querySelectorAll('[data-testid="stBaseButton-secondary"]');
+    for(var i=0;i<wrappers.length;i++){{
+      if((wrappers[i].innerText||'').trim()===text){{
+        (wrappers[i].querySelector('button')||wrappers[i]).click();
+        return;
+      }}
+    }}
+  }}
+
+  function hideSugBtns(){{
+    var doc=window.parent.document;
+    doc.querySelectorAll('[data-testid="stBaseButton-secondary"]').forEach(function(w){{
+      if(SUGS.indexOf((w.innerText||'').trim())>=0){{
+        // Walk up to collapse the full element-container, not just the button wrapper
+        var c=w.parentElement;
+        while(c&&c.parentElement&&
+              c.parentElement.getAttribute('data-testid')==='stVerticalBlock'===false&&
+              !c.classList.contains('stElementContainer')&&
+              !c.classList.contains('element-container')){{
+          c=c.parentElement;
+        }}
+        if(c){{
+          c.style.setProperty('display','none','important');
+          c.style.setProperty('height','0','important');
+          c.style.setProperty('min-height','0','important');
+          c.style.setProperty('margin','0','important');
+          c.style.setProperty('padding','0','important');
+        }}
+      }}
+    }});
+  }}
+
+  function init(){{
+    if(!measure())return false;
+    setPos(false);
+    hideSugBtns();
+    return true;
+  }}
+
+  if(!init()){{
+    requestAnimationFrame(function(){{
+      requestAnimationFrame(function(){{
+        if(!init()){{
+          setTimeout(function(){{init();}},200);
+          setTimeout(function(){{init();}},600);
+        }}
+      }});
+    }});
+  }}
+}})();
+</script>""",
+            height=340,
+        )
+
+        # Hidden Streamlit buttons — placed AFTER the carousel so they don't
+        # create a gap between the intro text and the carousel viewport.
+        # The carousel JS finds them by text content and clicks them when selected.
+        for i, prompt in enumerate(_SUGGESTIONS):
+            if st.button(prompt, key=f"sug_{i}"):
+                st.session_state.pending_prompt = prompt
+                st.rerun()
 
     else:
         # ── Drain active chat stream queue ─────────────────────────────────
@@ -919,7 +1083,7 @@ with _content_area:
                                 });
                             }
                         });
-                    } catch(e) { console.warn('WILL.AI img-click:', e); }
+                    } catch(e) { console.warn('WILL.ai img-click:', e); }
                 }
 
                 setup();
@@ -1018,13 +1182,13 @@ with _content_area:
     # chat column index: 0 for 2-col layout, 1 for 3-col layout.
     components.html(
         f"""<script>
-(function(){{var _t={time.time():.0f};
+(function(){{var _t={time.time():.0f};var _hasMessages={'true' if st.session_state.get('messages') else 'false'};var _studioOpen={'true' if _studio_open else 'false'};
 var doc=window.parent.document;
 
 // ── 1. Persist scroll lock in <head> ─────────────────────────────────────────
 var _ss=doc.getElementById('_will_scroll_lock');
 if(!_ss){{_ss=doc.createElement('style');_ss.id='_will_scroll_lock';doc.head.appendChild(_ss);}}
-_ss.textContent='html,body,[data-testid="stApp"],[data-testid="stAppViewContainer"],[data-testid="stMainBlockContainer"]{{overflow:hidden!important;max-height:100vh!important;padding-bottom:0!important;}}';
+_ss.textContent='html,body{{background:#000!important;}}html,body,[data-testid="stApp"],[data-testid="stAppViewContainer"],[data-testid="stMainBlockContainer"]{{overflow:hidden!important;max-height:100vh!important;padding-bottom:0!important;}}';
 
 // ── 2. Reset scroll on containers ────────────────────────────────────────────
 ['stApp','stAppViewContainer','stMainBlockContainer'].forEach(function(id){{
@@ -1035,34 +1199,87 @@ _ss.textContent='html,body,[data-testid="stApp"],[data-testid="stAppViewContaine
 // ── 3. Find outer horizontal block and clamp columns ─────────────────────────
 var mc=doc.querySelector('[data-testid="stMainBlockContainer"]');
 if(!mc)return;
+mc.style.setProperty('padding-right','2rem','important');
 var hbs=mc.querySelectorAll('[data-testid="stHorizontalBlock"]');
 for(var i=0;i<hbs.length;i++){{
-  var hb=hbs[i],cols=hb.querySelectorAll(':scope>[data-testid="column"]');
-  if(hb.closest('[data-testid="stChatMessage"]')||hb.closest('[data-testid="column"]'))continue;
+  var hb=hbs[i],cols=hb.querySelectorAll(':scope>[data-testid="stColumn"]');
+  if(hb.closest('[data-testid="stChatMessage"]')||hb.closest('[data-testid="stColumn"]'))continue;
   // Always 3 cols: [left, chat, studio] — chat is always cols[1]
   if(cols.length!==3)continue;
   var chatCol=cols[1];
-  hb.style.setProperty('height','calc(100vh - 75px)','important');
-  hb.style.setProperty('max-height','calc(100vh - 75px)','important');
-  hb.style.setProperty('overflow','hidden','important');
-  chatCol.style.setProperty('height','calc(100vh - 75px)','important');
-  chatCol.style.setProperty('max-height','calc(100vh - 75px)','important');
-  chatCol.style.setProperty('overflow','hidden','important');
-  cols[2].style.setProperty('height','calc(100vh - 75px)','important');
-  cols[2].style.setProperty('max-height','calc(100vh - 75px)','important');
+  hb.style.setProperty('overflow','visible','important');
   cols[2].style.setProperty('overflow-y','auto','important');
-  // Find chat scroll container: stVerticalBlockBorderWrapper or chatCol itself
-  var scrollEl=chatCol.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
-  if(!scrollEl)scrollEl=chatCol;
-  scrollEl.style.setProperty('height','calc(100vh - 75px)','important');
-  scrollEl.style.setProperty('max-height','calc(100vh - 75px)','important');
-  scrollEl.style.setProperty('overflow-y','auto','important');
-  // Scroll to bottom after layout settles
-  window.parent.requestAnimationFrame(function(){{
-    window.parent.requestAnimationFrame(function(){{
-      scrollEl.scrollTop=scrollEl.scrollHeight;
+
+  // Measure the gap precisely so the border is always above stBottom
+  var stBottomEl=doc.querySelector('[data-testid="stBottom"]');
+  var stBottomTop=stBottomEl
+    ?stBottomEl.getBoundingClientRect().top
+    :window.parent.innerHeight;
+  var chatColTop=chatCol.getBoundingClientRect().top;
+  var chatH=Math.max(200,stBottomTop-chatColTop-36); // 36px gap so border-radius is fully visible
+
+  // Draw the border ON chatCol itself — JS inline !important beats Emotion
+  chatCol.style.setProperty('height',chatH+'px','important');
+  chatCol.style.setProperty('max-height',chatH+'px','important');
+  chatCol.style.setProperty('overflow','hidden','important');
+  chatCol.style.setProperty('background','#212121','important');
+  chatCol.style.setProperty('outline','none','important');
+  chatCol.style.setProperty('box-shadow','inset 0 0 0 1px rgba(255,255,255,0.35)','important');
+  chatCol.style.setProperty('border-radius','12px','important');
+  chatCol.style.setProperty('box-sizing','border-box','important');
+
+  // Also size and style the studio column to match (only when open)
+  if(_studioOpen){{
+    cols[2].style.setProperty('height',chatH+'px','important');
+    cols[2].style.setProperty('max-height',chatH+'px','important');
+    cols[2].style.setProperty('background','#212121','important');
+    cols[2].style.setProperty('border-radius','12px','important');
+    cols[2].style.setProperty('box-shadow','inset 0 0 0 1px rgba(255,255,255,0.35)','important');
+    cols[2].style.setProperty('box-sizing','border-box','important');
+    cols[2].style.setProperty('padding','1rem 0.75rem','important');
+    cols[2].style.removeProperty('width');
+    cols[2].classList.add('will-studio-col');
+    cols[2].querySelectorAll('[data-testid="stVerticalBlock"],[data-testid="stVerticalBlockBorderWrapper"]').forEach(function(el){{
+      el.style.setProperty('width','100%','important');
+      el.style.setProperty('min-width','0','important');
+      el.style.setProperty('box-sizing','border-box','important');
     }});
-  }});
+  }} else {{
+    // Studio closed — make right spacer col invisible
+    cols[2].style.setProperty('background','transparent','important');
+    cols[2].style.setProperty('box-shadow','none','important');
+    cols[2].style.setProperty('border','none','important');
+    cols[2].style.setProperty('outline','none','important');
+    cols[2].style.removeProperty('height');
+    cols[2].style.removeProperty('max-height');
+    cols[2].classList.remove('will-studio-col');
+  }}
+
+  // Strip the inner wrapper's own border so we don't get a double border
+  var wrapper=chatCol.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+  if(wrapper){{
+    wrapper.style.setProperty('border','none','important');
+    wrapper.style.setProperty('outline','none','important');
+    wrapper.style.setProperty('height','100%','important');
+    wrapper.style.setProperty('max-height','100%','important');
+  }}
+  // Also strip studio col inner wrapper border
+  var studioWrapper=cols[2].querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+  if(studioWrapper){{
+    studioWrapper.style.setProperty('border','none','important');
+    studioWrapper.style.setProperty('outline','none','important');
+  }}
+
+  // Scroll chat to bottom only when there are messages
+  var scrollEl=chatCol.querySelector('[data-testid="stVerticalBlock"]');
+  if(scrollEl)scrollEl.style.setProperty('overflow-y',_hasMessages?'auto':'hidden','important');
+  if(_hasMessages&&scrollEl){{
+    window.parent.requestAnimationFrame(function(){{
+      window.parent.requestAnimationFrame(function(){{
+        if(scrollEl)scrollEl.scrollTop=scrollEl.scrollHeight;
+      }});
+    }});
+  }}
   break;
 }}
 }})();

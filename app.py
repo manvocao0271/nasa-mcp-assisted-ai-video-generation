@@ -1,4 +1,4 @@
-"""WILL.AI — What Infinity Looks Like AI
+"""WILL.ai — What Infinity Looks Like AI
 
 Streamlit multipage app entrypoint.
   Chat page      — pages/chat.py
@@ -18,7 +18,7 @@ load_dotenv()
 
 # ── Page config (must be first Streamlit call) ─────────────────────────────────
 st.set_page_config(
-    page_title="WILL.AI",
+    page_title="WILL.ai",
     page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",

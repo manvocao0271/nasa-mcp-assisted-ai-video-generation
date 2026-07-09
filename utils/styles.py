@@ -1,4 +1,4 @@
-"""Global CSS injection — ChatGPT dark-mode aesthetic for WILL.AI."""
+"""Global CSS injection — ChatGPT dark-mode aesthetic for WILL.ai."""
 from __future__ import annotations
 
 import streamlit as st
@@ -12,9 +12,12 @@ html {
 }
 
 /* ── Base ──────────────────────────────────────────────────────────────────── */
+html, body {
+    background-color: #000000 !important;
+}
 .stApp, [data-testid="stAppViewContainer"] {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-    background-color: #212121 !important;
+    background-color: #000000 !important;
 }
 
 /* ── Remove Streamlit chrome ───────────────────────────────────────────────── */
@@ -33,7 +36,7 @@ footer { display: none !important; }
     transform: translateX(0px) !important;
     min-width: 300px !important;
     max-width: 300px !important;
-    background-color: #171717 !important;
+    background-color: #212121 !important;
     border-right: 1px solid #2a2a2a !important;
     visibility: visible !important;
     display: flex !important;
@@ -41,23 +44,23 @@ footer { display: none !important; }
 [data-testid="stSidebarContent"] {
     padding: 14px 12px !important;
 }
-/* Hide resize handle */
+/* Hide resize handle and collapse/expand toggle */
 [data-testid="stSidebarResizeHandle"] { display: none !important; }
-/* Style the collapse toggle instead of hiding it */
-[data-testid="stSidebarCollapsedControl"] {
-    background-color: #171717 !important;
-    border-right: 1px solid #2a2a2a !important;
-}
-[data-testid="stSidebarCollapsedControl"] svg { color: rgba(255,255,255,0.3) !important; }
+[data-testid="stSidebarCollapsedControl"] { display: none !important; }
+[data-testid="stSidebarCollapseButton"] { display: none !important; }
+/* Also target the << chevron button that appears inside the sidebar */
+[data-testid="stSidebar"] button[kind="header"] { display: none !important; }
+[data-testid="stSidebarContent"] > div:first-child button { display: none !important; }
 
 /* ── Main content: centered, readable width ────────────────────────────────── */
 /* Target multiple Streamlit versions' class names */
 [data-testid="stMain"] {
-    background-color: #212121 !important;
+    background-color: #000000 !important;
 }
 [data-testid="stMainBlockContainer"],
 .stMainBlockContainer,
 .block-container {
+    background-color: #000000 !important;
     max-width: 100% !important;
     padding: 2.5rem 4rem 7rem !important;
     margin-left: 0 !important;
@@ -146,9 +149,9 @@ footer { display: none !important; }
 [data-testid="stBottom"],
 .stBottom,
 :has(> [data-testid="stBottomBlockContainer"]) {
-    background: #212121 !important;
-    background-color: #212121 !important;
-    background-image: none !important;
+    background: linear-gradient(to bottom, transparent 0px, #000000 16px) !important;
+    background-color: transparent !important;
+    background-image: linear-gradient(to bottom, transparent 0px, #000000 16px) !important;
     box-shadow: none !important;
     border-top: none !important;
 }
@@ -157,7 +160,7 @@ footer { display: none !important; }
     width: 100% !important;
     margin-left: 0 !important;
     margin-right: 0 !important;
-    background: #212121 !important;
+    background: #000000 !important;
     border-top: none !important;
     /* Centred layout: [4,11,4] outer + [1,6,0.5] inner shim (same as studio-open).
        padding-left  = outer_spacer(4/19) + gap + inner_pad(1/7.5 of content_col)
@@ -210,9 +213,13 @@ footer { display: none !important; }
     border: 1px solid #3a3a3a !important;
     color: #ececec !important;
     border-radius: 8px !important;
-    justify-content: flex-start !important;
+    justify-content: center !important;
     transition: background 0.1s, border-color 0.1s !important;
-    font-size: 0.875rem !important;
+    font-size: 0.72rem !important;
+    padding: 0.28rem 0.6rem !important;
+    min-height: unset !important;
+    height: auto !important;
+    line-height: 1.4 !important;
 }
 [data-testid="stSidebar"] [data-testid="stBaseButton-primary"]:hover {
     background: #2a2a2a !important;
@@ -230,7 +237,21 @@ footer { display: none !important; }
     display: block !important;
 }
 
-/* ── Suggestion cards (welcome screen buttons) ──────────────────────────────── */
+/* ── Suggestion carousel (welcome screen) ───────────────────────────────────── */
+.suggest-carousel {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    max-height: 260px !important;
+    overflow-y: auto !important;
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(255,255,255,0.12) transparent !important;
+    padding-right: 4px !important;
+    margin-top: 0.5rem !important;
+}
+.suggest-carousel::-webkit-scrollbar { width: 4px !important; }
+.suggest-carousel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12) !important; border-radius: 4px !important; }
+.suggest-carousel::-webkit-scrollbar-track { background: transparent !important; }
 .suggest-card [data-testid="stBaseButton-secondary"] {
     background: #2a2a2a !important;
     border: 1px solid #3a3a3a !important;
@@ -251,6 +272,12 @@ footer { display: none !important; }
     border-color: #505050 !important;
     color: #fff !important;
 }
+
+/* ── Studio column hover-scroll ────────────────────────────────────────────── */
+.will-studio-col { overflow-y: hidden !important; }
+.will-studio-col:hover { overflow-y: auto !important; scrollbar-width: thin !important; scrollbar-color: rgba(255,255,255) transparent !important; }
+.will-studio-col:hover::-webkit-scrollbar { width: 4px !important; }
+.will-studio-col:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15) !important; border-radius: 4px !important; }
 
 /* ── Dividers ───────────────────────────────────────────────────────────────── */
 hr {
