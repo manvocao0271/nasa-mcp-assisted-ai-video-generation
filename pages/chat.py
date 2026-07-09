@@ -707,7 +707,7 @@ st.markdown(
     }}
     [data-testid="stBottomBlockContainer"] {{
         max-width: 100% !important;
-        {'padding-left: calc((100vw - 300px) * 0.0772 + 2rem) !important; padding-right: calc((100vw - 300px) * 0.4596 + 1rem) !important;' if _studio_open else 'padding-left: calc((100vw - 300px) * 0.2877 + 21.74px) !important; padding-right: calc((100vw - 300px) * 0.2491 + 25.7px) !important;'}
+        {'padding-left: calc((100vw - 300px) * 0.0878) !important; padding-right: calc((100vw - 300px) * 0.4745) !important;' if _studio_open else 'padding-left: calc((100vw - 300px) * 0.2768) !important; padding-right: calc((100vw - 300px) * 0.2778) !important;'}
         box-sizing: border-box !important;
     }}
     {'/* ── Studio column border wrapper ── */ [data-testid="stHorizontalBlock"]:not([data-testid="stChatMessage"] [data-testid="stHorizontalBlock"]):not([data-testid="stColumn"] [data-testid="stHorizontalBlock"]) > [data-testid="stColumn"]:last-child:not(:first-child) [data-testid="stVerticalBlockBorderWrapper"] { border: none !important; outline: none !important; height: 100% !important; max-height: 100% !important; }' if _studio_open else ''}
@@ -743,16 +743,16 @@ else:
 # chat column (just before the studio panel). The [1,7] indent columns live INSIDE
 # the viewport so the left-padding scrolls with the content.
 with _col_chat:
-    # Always use a height-constrained bordered container so the chat scrolls
+    # Always use a height-constrained container so the chat scrolls
     # internally and the page itself never scrolls.
-    _msg_area = st.container(height=10000, border=True)
+    _msg_area = st.container(border=False)
 
 # Left-indent columns are created inside the scroll viewport; _content_area is
 # the render target for all messages.
 # Both modes use the same [1, 6, 0.5] inner shim so text layout is identical.
 # Centering in non-studio mode comes from the [4, 11, 4] outer columns.
 with _msg_area:
-    _pad_col, _chat_inner, _rpad_col = st.columns([1, 6, 0.5], gap=None)
+    _pad_col, _chat_inner, _rpad_col = st.columns([0.5, 6.5, 0.5], gap=None)
 _content_area = _chat_inner
 
 # ── Chat messages (inside _content_area → _msg_area → _col_chat) ──────────────
@@ -1222,6 +1222,7 @@ for(var i=0;i<hbs.length;i++){{
   chatCol.style.setProperty('height',chatH+'px','important');
   chatCol.style.setProperty('max-height',chatH+'px','important');
   chatCol.style.setProperty('overflow','hidden','important');
+  chatCol.style.setProperty('padding','0','important');
   chatCol.style.setProperty('background','#212121','important');
   chatCol.style.setProperty('outline','none','important');
   chatCol.style.setProperty('box-shadow','inset 0 0 0 1px rgba(255,255,255,0.35)','important');
@@ -1262,6 +1263,8 @@ for(var i=0;i<hbs.length;i++){{
     wrapper.style.setProperty('outline','none','important');
     wrapper.style.setProperty('height','100%','important');
     wrapper.style.setProperty('max-height','100%','important');
+    wrapper.style.setProperty('margin','0','important');
+    wrapper.style.setProperty('padding','0','important');
   }}
   // Also strip studio col inner wrapper border
   var studioWrapper=cols[2].querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
@@ -1270,13 +1273,27 @@ for(var i=0;i<hbs.length;i++){{
     studioWrapper.style.setProperty('outline','none','important');
   }}
 
-  // Scroll chat to bottom only when there are messages
-  var scrollEl=chatCol.querySelector('[data-testid="stVerticalBlock"]');
-  if(scrollEl)scrollEl.style.setProperty('overflow-y',_hasMessages?'auto':'hidden','important');
-  if(_hasMessages&&scrollEl){{
+  // Scroll chat to the latest visible message every time the view updates.
+  var wrapperEl = chatCol.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+  var scrollEl = wrapperEl || chatCol.querySelector('[data-testid="stVerticalBlock"]');
+  if(scrollEl) {{
+    scrollEl.style.setProperty('overflow-y', _hasMessages ? 'auto' : 'hidden', 'important');
+    scrollEl.style.setProperty('overflow-x', 'hidden', 'important');
+    scrollEl.style.setProperty('min-height', '0', 'important');
+    scrollEl.style.setProperty('height', '100%', 'important');
+    scrollEl.style.setProperty('max-height', '100%', 'important');
+  }}
+  if(_hasMessages && scrollEl){{
     window.parent.requestAnimationFrame(function(){{
       window.parent.requestAnimationFrame(function(){{
-        if(scrollEl)scrollEl.scrollTop=scrollEl.scrollHeight;
+        var msgEls = chatCol.querySelectorAll('[data-testid="stChatMessage"]');
+        if(msgEls.length > 0){{
+          var lastMsg = msgEls[msgEls.length - 1];
+          if(lastMsg && typeof lastMsg.scrollIntoView === 'function'){{
+            lastMsg.scrollIntoView({{block:'end', inline:'nearest'}});
+          }}
+        }}
+        if(scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
       }});
     }});
   }}
@@ -1286,6 +1303,54 @@ for(var i=0;i<hbs.length;i++){{
 </script>""",
         height=0,
     )
+
+components.html(
+    """
+    <script>
+    (function() {
+      var doc = window.parent.document;
+
+      function findScrollEl() {
+        var mc = doc.querySelector('[data-testid="stMainBlockContainer"]');
+        if (!mc) return null;
+        var hbs = mc.querySelectorAll('[data-testid="stHorizontalBlock"]');
+        for (var i = 0; i < hbs.length; i++) {
+          var hb = hbs[i];
+          if (hb.closest('[data-testid="stChatMessage"]') || hb.closest('[data-testid="stColumn"]')) continue;
+          var cols = hb.querySelectorAll(':scope>[data-testid="stColumn"]');
+          if (cols.length !== 3) continue;
+          var chatCol = cols[1];
+          var wrapper = chatCol.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+          var scrollEl = wrapper || chatCol.querySelector('[data-testid="stVerticalBlock"]');
+          if (scrollEl) return scrollEl;
+        }
+        return null;
+      }
+
+      function scrollBottom(el) {
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+      }
+
+      function setupObserver() {
+        var el = findScrollEl();
+        if (!el) {
+          setTimeout(setupObserver, 200);
+          return;
+        }
+        scrollBottom(el);
+        var observer = new MutationObserver(function() {
+          scrollBottom(el);
+        });
+        observer.observe(el, { childList: true, subtree: true, characterData: true });
+      }
+
+      setupObserver();
+    })();
+    </script>
+    """,
+    height=0,
+)
 
 # ── Studio panel column ───────────────────────────────────────────────────────
 with _col_studio:
