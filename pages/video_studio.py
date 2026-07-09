@@ -327,6 +327,7 @@ with col_right:
             for _clip in _scene_clips:
                 st.caption(_clip.name)
                 st.video(str(_clip))
+                st.markdown('<div style="margin-bottom:1.5rem"></div>', unsafe_allow_html=True)
 
             # Save pipeline run to RunDB (once)
             if not st.session_state._pipeline_run_saved:
