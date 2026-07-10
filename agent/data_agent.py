@@ -226,57 +226,67 @@ class DataAgent:
                 return self._build_assets(user_message, tools_called, all_results)
 
     def _build_assets(
-        self, query: str, tools_called: list[str], results: list[dict]
-    ) -> dict:
-        """Distil raw tool results into the assets dict consumed by downstream agents."""
-        images: list[dict] = []
-        data: dict = {}
+            self, query: str, tools_called: list[str], results: list[dict]
+        ) -> dict:
+            """Distil raw tool results into the assets dict consumed by downstream agents."""
+            images: list[dict] = []
+            data: dict = {}
 
-        IMAGE_URL_KEYS = ("hdurl", "url", "jpg_url", "img_src")
+            # Tool calls of the *same* tool within one turn (e.g. two
+            # search_image_library_tool calls for two different subjects) must
+            # not collide on a single dict key, or every call but the last gets
+            # silently dropped from `data` — and downstream, Retriever would also
+            # dedupe them together since it derives doc_id from this same key.
+            _tool_counts: dict[str, int] = {}
 
-        for entry in results:
-            tool = entry["tool"]
-            result = entry["result"]
+            IMAGE_URL_KEYS = ("hdurl", "url", "jpg_url", "img_src")
 
-            if isinstance(result, dict):
-                for key in IMAGE_URL_KEYS:
-                    if key in result and isinstance(result[key], str):
-                        images.append(
-                            {
-                                "url": result[key],
-                                "thumb_url": result.get("thumb_url", ""),
-                                "caption": (
-                                    result.get("title")
-                                    or str(result.get("explanation", ""))[:120]
-                                ),
-                                "source": tool,
-                            }
-                        )
-                        break
-                data[tool] = result
+            for entry in results:
+                tool = entry["tool"]
+                result = entry["result"]
 
-            elif isinstance(result, list):
-                for item in result[:3]:
-                    if isinstance(item, dict):
-                        for key in IMAGE_URL_KEYS:
-                            if key in item and isinstance(item[key], str):
-                                images.append(
-                                    {
-                                        "url": item[key],
-                                        "thumb_url": item.get("thumb_url", ""),
-                                        "caption": (
-                                            item.get("title")
-                                            or str(item.get("explanation", ""))[:120]
-                                        ),
-                                        "source": tool,
-                                    }
-                                )
-                                break
-                data[tool] = result
+                _tool_counts[tool] = _tool_counts.get(tool, 0) + 1
+                _key = tool if _tool_counts[tool] == 1 else f"{tool}_{_tool_counts[tool]}"
 
-        return {
-            "query": query,
-            "tools_called": tools_called,
-            "images": images[:5],  # cap at 5 reference frames for Wan
-            "data": data,
-        }
+                if isinstance(result, dict):
+                    for key in IMAGE_URL_KEYS:
+                        if key in result and isinstance(result[key], str):
+                            images.append(
+                                {
+                                    "url": result[key],
+                                    "thumb_url": result.get("thumb_url", ""),
+                                    "caption": (
+                                        result.get("title")
+                                        or str(result.get("explanation", ""))[:120]
+                                    ),
+                                    "source": tool,
+                                }
+                            )
+                            break
+                    data[_key] = result
+
+                elif isinstance(result, list):
+                    for item in result[:3]:
+                        if isinstance(item, dict):
+                            for key in IMAGE_URL_KEYS:
+                                if key in item and isinstance(item[key], str):
+                                    images.append(
+                                        {
+                                            "url": item[key],
+                                            "thumb_url": item.get("thumb_url", ""),
+                                            "caption": (
+                                                item.get("title")
+                                                or str(item.get("explanation", ""))[:120]
+                                            ),
+                                            "source": tool,
+                                        }
+                                    )
+                                    break
+                    data[_key] = result
+
+            return {
+                "query": query,
+                "tools_called": tools_called,
+                "images": images[:5],  # cap at 5 reference frames for Wan
+                "data": data,
+            }

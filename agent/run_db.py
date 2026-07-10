@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -95,6 +95,27 @@ class RunDB:
     ) -> None:
         """Save a run to the database."""
         self.create_conversation(conversation_id)
+
+        # Be defensive: messages should always be Message dataclass instances,
+        # but if a caller ever hands us something else (a plain dict, a stray
+        # string, etc.) we want a degraded-but-valid row, not a crashed page.
+        _messages_json: list[dict] = []
+        for m in messages or []:
+            if is_dataclass(m) and not isinstance(m, type):
+                _messages_json.append(asdict(m))
+            elif isinstance(m, dict):
+                _messages_json.append({
+                    "role": m.get("role", "unknown"),
+                    "content": m.get("content", ""),
+                    "timestamp": m.get("timestamp", datetime.now().isoformat()),
+                })
+            else:
+                _messages_json.append({
+                    "role": "unknown",
+                    "content": str(m),
+                    "timestamp": datetime.now().isoformat(),
+                })
+
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -109,7 +130,7 @@ class RunDB:
                     datetime.now().isoformat(),
                     json.dumps(assets or {}),
                     json.dumps(manifest or {}),
-                    json.dumps([asdict(m) for m in messages or []]),
+                    json.dumps(_messages_json),
                 ),
             )
             conn.commit()

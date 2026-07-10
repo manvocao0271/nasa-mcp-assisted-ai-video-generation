@@ -522,6 +522,7 @@ def _render_studio_panel() -> None:
         for _clip in _scene_clips:
             st.caption(_clip.name)
             st.video(str(_clip))
+            st.markdown('<div style="height:1.25rem"></div>', unsafe_allow_html=True)
 
         # Persist to RunDB once
         if _scene_clips and not st.session_state._pipeline_run_saved:
@@ -532,13 +533,10 @@ def _render_studio_panel() -> None:
                 assistant_response=f"{len(_scene_clips)} clip(s) generated.",
                 assets=st.session_state._pipeline_merged_assets,
                 manifest=_manifest,
-                messages=[
-                    Message(role=m["role"], content=m["content"],
-                            timestamp=datetime.now().isoformat())
-                    for m in st.session_state.messages
-                ],
+                messages=[...],
             )
             st.session_state._pipeline_run_saved = True
+            _save_studio_state()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1237,7 +1235,7 @@ for(var i=0;i<hbs.length;i++){{
     cols[2].style.setProperty('border-radius','12px','important');
     cols[2].style.setProperty('box-shadow','inset 0 0 0 1px rgba(255,255,255,0.35)','important');
     cols[2].style.setProperty('box-sizing','border-box','important');
-    cols[2].style.setProperty('padding','1rem 0.75rem','important');
+    cols[2].style.setProperty('padding','1rem 0.75rem 2rem','important');
     cols[2].style.removeProperty('width');
     cols[2].classList.add('will-studio-col');
     cols[2].querySelectorAll('[data-testid="stVerticalBlock"],[data-testid="stVerticalBlockBorderWrapper"]').forEach(function(el){{
@@ -1355,8 +1353,4 @@ components.html(
 # ── Studio panel column ───────────────────────────────────────────────────────
 with _col_studio:
     if _studio_open:
-        # Inner columns add a blank right-pad column, since CSS padding on
-        # Streamlit column elements is overridden by emotion CSS.
-        _studio_c, _studio_rpad = st.columns([8, 1])
-        with _studio_c:
-            _render_studio_panel()
+        _render_studio_panel()

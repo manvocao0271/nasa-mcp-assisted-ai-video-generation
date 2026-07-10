@@ -88,6 +88,22 @@ def _assets_from_urls(urls: list[str], query: str) -> dict:
     return {"query": query, "tools_called": [], "images": images, "data": {}}
 
 
+def _recent_context(conversation_history: list[dict] | None) -> str:
+    """Build a short context string from the most recent turn.
+
+    Needed so DataAgent's tool-calling LLM can resolve pronouns/references
+    like "show me pictures of it" — without this, it only ever sees the
+    current message in isolation and has no idea what "it" refers to.
+    """
+    if not conversation_history:
+        return ""
+    last = conversation_history[-1]
+    return (
+        f"User previously asked: {last.get('user_message', '')}\n"
+        f"Assistant answered: {last.get('assistant_response', '')}"
+    )
+
+
 
 
 

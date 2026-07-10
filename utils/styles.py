@@ -274,10 +274,7 @@ footer { display: none !important; }
 }
 
 /* ── Studio column hover-scroll ────────────────────────────────────────────── */
-.will-studio-col { overflow-y: hidden !important; }
-.will-studio-col:hover { overflow-y: auto !important; scrollbar-width: thin !important; scrollbar-color: rgba(255,255,255) transparent !important; }
-.will-studio-col:hover::-webkit-scrollbar { width: 4px !important; }
-.will-studio-col:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15) !important; border-radius: 4px !important; }
+.will-studio-col { overflow-y: auto !important; }
 
 /* ── Dividers ───────────────────────────────────────────────────────────────── */
 hr {
