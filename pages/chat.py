@@ -421,7 +421,7 @@ def _render_studio_panel() -> None:
         label="prompt_label",
         label_visibility="collapsed",
         placeholder="Describe cinematic style, mood or focus…",
-        height=72,
+        height="content",
         key="studio_prompt",
     )
 
@@ -526,17 +526,27 @@ def _render_studio_panel() -> None:
 
         # Persist to RunDB once
         if _scene_clips and not st.session_state._pipeline_run_saved:
-            _db.save_run(
-                run_id=str(uuid.uuid4()),
-                conversation_id=st.session_state.conversation_id,
-                user_message=st.session_state._pipeline_prompt,
-                assistant_response=f"{len(_scene_clips)} clip(s) generated.",
-                assets=st.session_state._pipeline_merged_assets,
-                manifest=_manifest,
-                messages=[...],
-            )
-            st.session_state._pipeline_run_saved = True
-            _save_studio_state()
+            try:
+                _db.save_run(
+                    run_id=str(uuid.uuid4()),
+                    conversation_id=st.session_state.conversation_id,
+                    user_message=st.session_state._pipeline_prompt,
+                    assistant_response=f"{len(_scene_clips)} clip(s) generated.",
+                    assets=st.session_state._pipeline_merged_assets,
+                    manifest=_manifest,
+                    messages=[
+                        Message(role=m["role"], content=m["content"],
+                                timestamp=datetime.now().isoformat())
+                        for m in st.session_state.messages
+                    ],
+                )
+            except Exception:
+                # Don't let a DB error crash the whole panel — the clip is
+                # already on disk and will show up on next successful save.
+                pass
+            else:
+                st.session_state._pipeline_run_saved = True
+                _save_studio_state()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

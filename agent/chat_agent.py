@@ -134,7 +134,9 @@ class ChatAgent:
                 from agent.data_agent import DataAgent
                 nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")
                 qwen_key = os.environ.get("QWEN_API_KEY", "")
-                chat_assets = DataAgent(nasa_key, qwen_key).fetch(user_message)
+                chat_assets = DataAgent(nasa_key, qwen_key).fetch(
+                    user_message, context=_recent_context(conversation_history)
+                )
                 retriever = Retriever()
                 passages = retriever._extract_passages(chat_assets, top_k=6)
                 if passages:
@@ -215,7 +217,9 @@ class ChatAgent:
                 from agent.data_agent import DataAgent
                 nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")
                 qwen_key = os.environ.get("QWEN_API_KEY", "")
-                chat_assets = DataAgent(nasa_key, qwen_key).fetch(user_message)
+                chat_assets = DataAgent(nasa_key, qwen_key).fetch(
+                    user_message, context=_recent_context(conversation_history)
+                )
                 retriever = Retriever()
                 passages = retriever._extract_passages(chat_assets, top_k=6)
                 if passages:
