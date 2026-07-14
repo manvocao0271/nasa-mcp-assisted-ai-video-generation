@@ -50,6 +50,24 @@ def get_session_dir(session_id: str) -> Path:
     return path
 
 
+def get_conversation_dir(session_id: str, conversation_id: str) -> Path:
+    """Return the Video Studio data directory for one specific conversation.
+
+    Nested under the session dir (not a sibling) so the existing session-level
+    cleanup_expired_sessions() sweep still removes it automatically — no
+    separate per-conversation cleanup path is needed.
+
+    All Video Studio pipeline artifacts (assets.json, script.json,
+    storyboard.json, episode_manifest.json, clips/, studio_state.json) live
+    here instead of directly under the session dir, so switching between
+    conversations in the same browser session no longer shares — and
+    silently overwrites — the same clips/queue/pipeline-log on disk.
+    """
+    path = get_session_dir(session_id) / "conversations" / conversation_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def cleanup_expired_sessions(max_age_hours: int = 24) -> None:
     """Remove session directories that have not been modified in *max_age_hours*."""
     sessions_root = Path("output") / "sessions"

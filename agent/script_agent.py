@@ -116,6 +116,8 @@ class ScriptAgent:
             f"There are {n} image(s). Write scene i about Image i."
             if selected_urls
             else "No images — write one scene from the NASA data alone."
+            if data_summary
+            else "No reference images or NASA data — write one scene purely from the user's request."
         )
         content.append({
             "type": "text",

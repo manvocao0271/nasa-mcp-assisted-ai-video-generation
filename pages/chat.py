@@ -21,7 +21,7 @@ from agent.orchestrator import Orchestrator
 from agent.qwen_client import QwenClient, MODEL_CHAT
 from agent.run_db import Message
 from utils.helpers import fetch_thumb
-from utils.session import get_session_dir
+from utils.session import get_session_dir, get_conversation_dir
 
 # ── Environment ────────────────────────────────────────────────────────────────
 NASA_API_KEY = os.environ.get("NASA_API_KEY", "DEMO_KEY")
@@ -29,7 +29,11 @@ QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
 
 # Session state already initialised by app.py
 _db = st.session_state.run_db
-_session_dir = get_session_dir(st.session_state.session_id)
+# Video Studio artifacts (clips, pipeline JSON, studio_state.json) are scoped
+# to the *active conversation*, not the whole browser session — recomputed
+# fresh every rerun, so it automatically follows conversation_id when it
+# changes (new chat / switch conversation), without any extra plumbing.
+_session_dir = get_conversation_dir(st.session_state.session_id, st.session_state.conversation_id)
 
 # ── Suggested prompts ──────────────────────────────────────────────────────────
 _SUGGESTIONS = [
@@ -305,6 +309,12 @@ def _launch_pipeline(prompt_text: str) -> None:
     Always uses I2V when images are queued.  If the video model
     falls back to T2V at runtime (e.g. quota exhausted), that is
     reported transparently via the pipeline log warning.
+
+    With no images queued, this skips NASA entirely — ScriptAgent's
+    scene_count() already returns exactly 1 for an empty image list, and
+    the pipeline's mode selection already falls back to T2V automatically
+    whenever a scene has no ref_image_url, so no downstream changes are
+    needed to get a single text-to-video clip from the raw prompt alone.
     """
     _q = st.session_state.video_queue
     if _q:
@@ -320,22 +330,7 @@ def _launch_pipeline(prompt_text: str) -> None:
         }
         chat_desc = " ".join(i.get("description", "") for i in _q)[:400]
     else:
-        _orch_fetch = Orchestrator(
-            qwen_api_key=QWEN_API_KEY,
-            nasa_api_key=NASA_API_KEY,
-            output_dir=_session_dir,
-        )
-        merged_assets = {}
-        _ph = st.empty()
-        _ph.caption("Fetching NASA data…")
-        try:
-            for _upd in _orch_fetch.fetch_data(prompt_text):
-                merged_assets = _upd.get("assets", merged_assets)
-        except Exception as exc:
-            st.error(f"Data fetch failed: {exc}")
-            _ph.empty()
-            return
-        _ph.empty()
+        merged_assets = {"query": prompt_text, "images": [], "data": {}, "tools_called": []}
         chat_desc = ""
 
     st.session_state._pipeline_prompt = prompt_text
@@ -561,10 +556,30 @@ if not st.session_state.messages:
     if _init_hist:
         st.session_state.messages = _messages_from_history(_init_hist)
 
-# Restore Video Studio state (queue, pipeline log, generated clips) on hard
-# refresh.  Uses a one-shot flag so the file is only read once per session.
-if "_studio_state_restored" not in st.session_state:
-    st.session_state._studio_state_restored = True
+# Restore Video Studio state (queue, pipeline log, generated clips) for the
+# *active conversation*. Keyed by conversation_id (not a one-shot session
+# flag) so this fires both on a hard browser refresh AND whenever the user
+# switches conversations or starts a new chat — each time resetting the
+# in-memory queue/pipeline state first, then reloading whatever that specific
+# conversation's own studio_state.json (in its now conversation-scoped
+# _session_dir) has saved, if anything.
+#
+# Known limitation: if a pipeline is still running in the background for a
+# conversation the user has since switched away from, this view stops
+# reflecting its live progress until they switch back and it has finished
+# (the clips/manifest still land in that conversation's own directory
+# correctly — only the *live* status log stops updating while unfocused).
+if st.session_state.get("_studio_state_restored_for") != st.session_state.conversation_id:
+    st.session_state._studio_state_restored_for = st.session_state.conversation_id
+
+    st.session_state.video_queue = []
+    st.session_state._pipeline_updates = []
+    st.session_state._pipeline_running = False
+    st.session_state._pipeline_run_saved = False
+    st.session_state._pipeline_merged_assets = {}
+    st.session_state._pipeline_prompt = ""
+    st.session_state._pipeline_chat_desc = ""
+
     _sf = _session_dir / "studio_state.json"
     if _sf.exists():
         try:
