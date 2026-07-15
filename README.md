@@ -1,4 +1,3 @@
-
 # [WILL.AI](http://willai-demo.duckdns.org/) — What Infinity Looks Like AI
 
 > A multi-agent system that turns real NASA data into cinematic short films about the universe. Powered by Qwen models on Qwen Cloud, grounded by NASA's public APIs via MCP.
@@ -125,6 +124,30 @@ These are the next NASA data sources to wire into the pipeline so a scene can be
 | MCP server hosting | Alibaba Cloud ECS / Function Compute |
 | Asset caching | Alibaba Cloud OSS (production) / SQLite (local dev) |
 
+## Video generation: model fallback chain
+
+Wan/HappyHorse free-tier quota is granted per **exact model string**, not per model family — a dated snapshot (`wan2.7-i2v-2026-04-25`) and its bare alias (`wan2.7-i2v`) draw from *separate* quota pools, and some bare aliases carry **no free quota at all** (pure pay-as-you-go from the very first call). `agent/video_gen.py` handles this with two ordered fallback lists instead of one hardcoded model per mode.
+
+**How it works:** `I2V_MODEL_PRIORITY` and `T2V_MODEL_PRIORITY` are tried in order. On quota exhaustion — or any other submission failure — for one model, the next candidate is tried automatically. The I2V chain only falls through to the T2V chain once every I2V candidate has failed, and if every model in *both* chains fails, the run raises a real error rather than silently falling back to an unlimited pay-as-you-go model. The bare `wan2.7-i2v` / `wan2.7-t2v` aliases are deliberately excluded from both lists for exactly this reason — and left off the DashScope API key's model allow-list entirely, so it's structurally impossible for the app to bill against them.
+
+| Priority | I2V / R2V | T2V |
+|---|---|---|
+| 1 | `wan2.7-i2v-2026-04-25` *(default)* | `wan2.7-t2v-2026-06-12` *(default)* |
+| 2 | `wan2.1-i2v-plus` | `wan2.7-t2v-2026-04-25` |
+| 3 | `wan2.1-i2v-turbo` | `wan2.6-t2v` |
+| 4 | `wan2.7-r2v-2026-06-12` *(silent, single-reference use only)* | `wan2.2-t2v-plus` |
+| 5 | `happyhorse-1.1-i2v` | `wan2.5-t2v-preview` |
+| 6 | `happyhorse-1.0-i2v` | `wan2.1-t2v-plus` |
+| 7 | `happyhorse-1.1-r2v` | `happyhorse-1.1-t2v` |
+| 8 | `happyhorse-1.0-r2v` | `wan2.1-t2v-turbo` *(last resort)* |
+
+Every model above has a request schema verified with real API calls via `test_video_models.py`, not assumed from a naming pattern — several early assumptions (e.g. `wan2.1-i2v-plus`'s reference-image field name, HappyHorse's minimum clip duration) turned out wrong and were only caught by actually calling them.
+
+**Known limitations:**
+- Clip length isn't fully consistent under deep fallback — `wan2.1-i2v-plus`/`wan2.1-i2v-turbo` cap at 5s (a hard model limit), and several T2V fallbacks default to ~5s since they don't have a confirmed `duration` parameter, versus the app's normal 10s target.
+- R2V models support multi-reference and voice-cloning input; this app deliberately only ever sends one silent reference image, to match its no-dialogue motion-directive prompting.
+- A few free-quota models (`wan2.6-i2v`, `wan2.2-i2v-plus`, `wan2.5-i2v-preview`, `wan2.6-r2v`, `kf2v-plus`, etc.) aren't in the chain yet — added only once a genuine DashScope-sourced schema example confirms how to call them.
+
 ## Live demo
 
 The app is deployed on Alibaba Cloud ECS (US Virginia):
@@ -192,6 +215,13 @@ After NASA data is fetched you pick which images to use as visual references. Ea
 ```bash
 uv run pytest                          # unit + integration (no network)
 uv run pytest -m live                  # live NASA API round-trips (needs NASA_API_KEY)
+```
+
+To verify a Wan/HappyHorse video model's request schema and output before adding it to the fallback chain, `test_video_models.py` submits a real minimal request using the same production code path:
+
+```bash
+python test_video_models.py --models wan2.6-i2v
+python test_video_models.py --all       # everything not already confirmed
 ```
 
 ## UI layout notes
@@ -265,12 +295,13 @@ nasa_mcp/               # NASA MCP server (data backbone)
   config.py             # Config / env loading
   server.py             # MCP server entry point
 output/                 # Generated artifacts (gitignored)
-  assets.json           # NASA data fetched for the request
-  script.json           # Scene captions (structured JSON, silent video)
-  storyboard.json       # Per-scene visual prompts
-  clips/                # Generated scene mp4(s)
-  episode_manifest.json # Run summary: data sources, token spend, clip paths
-tests/                  # Integration tests
+  assets.json            # NASA data fetched for the request
+  script.json            # Scene captions (structured JSON, silent video)
+  storyboard.json        # Per-scene visual prompts
+  clips/                 # Generated scene mp4(s)
+  episode_manifest.json  # Run summary: data sources, token spend, clip paths
+tests/                   # Integration tests
+test_video_models.py     # Standalone schema/output verification for Wan/HappyHorse models
 ```
 
 ## Retrieval-Augmented Generation (RAG)

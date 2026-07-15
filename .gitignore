@@ -16,5 +16,6 @@ wheels/
 
 # Generated pipeline artifacts
 output/
+test_output/
 
 .streamlit

@@ -20,21 +20,87 @@ _API_BASE = "https://dashscope-intl.aliyuncs.com/api/v1"
 _SUBMIT_URL = f"{_API_BASE}/services/aigc/video-generation/video-synthesis"
 _TASK_URL = f"{_API_BASE}/tasks/{{task_id}}"
 
-MODEL_T2V = "wan2.7-t2v"  # supports duration; swap to wan2.1-t2v-turbo for faster 5s clips
-MODEL_I2V = "wan2.7-i2v"  # async, input.img, supports duration/resolution/prompt_extend
+# Pinned to a dated snapshot for the same reason as MODEL_I2V above — the
+# bare "wan2.7-t2v" alias may draw from a different quota bucket.
+MODEL_T2V = "wan2.7-t2v-2026-06-12"  # supports duration; swap to wan2.1-t2v-turbo for faster 5s clips
+
+# Pinned to the exact dated snapshot shown in the DashScope console, not the
+# bare "wan2.7-i2v" alias — free-tier quota is tracked per exact model
+# string, and the alias can draw from a different (already-exhausted) bucket
+# than the dated snapshot even though they're "the same model".
+MODEL_I2V = "wan2.7-i2v-2026-04-25"
+
+# Tried in order on every I2V request; on quota exhaustion (or any other
+# submission failure) for one model, the next one is tried automatically.
+# Falls through to MODEL_T2V only once every candidate here has failed.
+# Ordered by remaining free-tier quota (highest first) among model families
+# _submit_job already knows how to format a request body for — see
+# _WAN_I2V_MODELS / _WAN27_I2V_MODELS / _HAPPYHORSE_I2V_MODELS below.
+# Update this list's order/contents as your DashScope quota page changes.
+I2V_MODEL_PRIORITY = [
+    MODEL_I2V,               # wan2.7-i2v-2026-04-25 — current default, best quality/prompt fit
+    "wan2.1-i2v-plus",       # 200 remaining — older gen, input.img_url schema, high quality
+    "wan2.1-i2v-turbo",      # 200 remaining — older gen, faster/lighter
+    "wan2.7-r2v-2026-06-12", # confirmed schema (see _R2V_MODELS below) — used single-reference,
+                              # silent-only; its multi-reference/voice-cloning capability is
+                              # intentionally unused here, doesn't fit this app's silent clips
+    "happyhorse-1.1-i2v",    # 10 remaining
+    "happyhorse-1.0-i2v",    # 10 remaining
+    "happyhorse-1.1-r2v",    # 10 remaining — same single-reference treatment as wan2.7-r2v above
+    "happyhorse-1.0-r2v",    # 10 remaining — schema inferred from the happyhorse-1.1-r2v example
+                              # (same doc page covered both versions, not independently confirmed)
+]
+# async, input.img_url, supports duration/resolution/prompt_extend
 # MODEL_I2V = "happyhorse-1.5-i2v"   # sync, input.media[first_frame], duration only
 
 # Per-model I2V input format:
-#   wan2.7-i2v-*     → input.img = "<url>"
+#   wan2.7-i2v-*     → input.img_url = "<url>" (confirmed via live test — the DashScope docs
+#                       comment this was originally written from called it "img", which is wrong)
 #   happyhorse-*-i2v → input.media = [{"type": "first_frame", "url": "<url>"}]
-# Per-model I2V parameter support:
-#   wan2.7-i2v-*     → supports duration, resolution, prompt_extend
-#   happyhorse-*-i2v → supports duration only
-_WAN_I2V_MODELS = ("wan2.1-i2v",)  # older schema: input.img
+# Per-model R2V input format (confirmed via DashScope example curls):
+#   wan2.7-r2v-*, happyhorse-*-r2v → input.media = [{"type": "reference_image", "url": "<url>"}]
+#   Real R2V supports multiple media items (reference_image AND reference_video, each with an
+#   optional reference_voice for dialogue/voice cloning) — deliberately not used here; this app
+#   only ever sends one silent reference_image, since its prompts are motion-directives with
+#   explicitly no dialogue, not the indexed "[Image 1]/[Video 1]" multi-character scripts R2V is
+#   really designed for.
+# wan2.1-kf2v-plus was tried and removed — confirmed via live test that it requires BOTH
+# first_frame_url and last_frame_url (omitting the second returns a URL validation error), which
+# doesn't fit this app's single-reference-image architecture. Not worth a same-frame-twice
+# workaround without separately verifying that actually produces usable output.
+# Per-model parameter support:
+#   wan2.7-i2v-*, wan2.7-r2v-* → duration, resolution, prompt_extend
+#   happyhorse-*-i2v/r2v/t2v  → duration only (confirmed minimum is 3, not 2) — r2v also takes
+#                                 resolution + ratio (no prompt_extend — unconfirmed whether it's
+#                                 silently ignored or rejected, so omitted)
+_WAN_I2V_MODELS = ("wan2.1-i2v",)  # older schema: input.img_url
 _WAN27_I2V_MODELS = ("wan2.7-i2v", "wan2.8-i2v")  # newer schema: input.media + resolution/prompt_extend
-_HAPPYHORSE_I2V_MODELS = ("happyhorse",)  # input.media, duration only
-# T2V models that support the duration parameter (wan2.7+ non-turbo)
+_HAPPYHORSE_I2V_MODELS = ("happyhorse",)  # input.media, duration only — matches happyhorse-*-i2v
+_R2V_MODELS = ("wan2.7-r2v", "happyhorse-1.1-r2v", "happyhorse-1.0-r2v")  # input.media[reference_image]
+# T2V models confirmed to support the duration parameter. Models NOT listed
+# here still work as fallbacks, just without an explicit duration — DashScope
+# uses that model's own fixed default instead (e.g. wan2.1-t2v-turbo is ~5s),
+# so a clip generated via one of those may run shorter than the rest of the
+# episode. Verify and add a model here once you've confirmed it accepts
+# "duration" rather than guessing, since a wrong guess is a silent 400, not
+# a loud one.
 _T2V_SUPPORTS_DURATION = ("wan2.7-t2v", "wan2.8-t2v")
+
+# Tried in order once every I2V candidate above has failed — this is the
+# genuine last line of defense; if every model here is also exhausted,
+# _submit_job raises for real and the pipeline reports a hard failure (there
+# is no tier below T2V to fall back to further).
+T2V_MODEL_PRIORITY = [
+    MODEL_T2V,                # wan2.7-t2v-2026-06-12 — current default
+    "wan2.7-t2v-2026-04-25",
+    "wan2.6-t2v",
+    "wan2.2-t2v-plus",
+    "wan2.5-t2v-preview",
+    "wan2.1-t2v-plus",        # 200 remaining, confirmed duration support
+    "happyhorse-1.1-t2v",     # 10 remaining
+    "wan2.1-t2v-turbo",       # 200 remaining, LAST — no duration support (~5s fixed,
+                               # will run shorter than the rest of the episode)
+]
 MAX_POLL_SECONDS = 600
 MAX_SCENES = 3
 CLIP_DURATION = 10  # seconds — fixed for all clips
@@ -57,6 +123,7 @@ class VideoGen:
         self.qwen_api_key = qwen_api_key
         self.poll_interval = poll_interval
         self.warnings: list[str] = []  # populated when I2V falls back to T2V
+        self.last_model_used: str = ""  # which model the most recent _submit_job used
         self.cancel_event = cancel_event
         _out = output_dir if output_dir is not None else _DEFAULT_OUTPUT_DIR
         self.clips_dir = _out / "clips"
@@ -140,7 +207,22 @@ class VideoGen:
                 continue
         return None
 
-    def _submit_job(self, prompt: str, duration_seconds: int, ref_image_url: str = "") -> str:
+    def _submit_job(
+        self,
+        prompt: str,
+        duration_seconds: int,
+        ref_image_url: str = "",
+        test_only_model: str | None = None,
+    ) -> str:
+        """Submit a generation job.
+
+        test_only_model: diagnostic-only. When set, submits to exactly this
+        model — no priority-list looping, no fallback to T2V on failure,
+        raises immediately if it fails. Reuses the same _i2v_body/_r2v_body/
+        _t2v_body closures as the real production path below, so
+        a passing test actually reflects what ships — it isn't a separate
+        reimplementation that could quietly drift out of sync.
+        """
         raw_url = ref_image_url.strip() if ref_image_url else ""
 
         # Wan 2.7 i2v accepts a plain HTTPS URL in media[0].url — use the raw URL
@@ -162,12 +244,18 @@ class VideoGen:
             is_happyhorse = any(m in model_lower for m in _HAPPYHORSE_I2V_MODELS)
 
             if is_wan_old:
-                # Older wan2.1-i2v uses flat input.img field
-                inp = {"prompt": final_prompt, "img": media_url}
+                # Confirmed via live test: field is img_url, not img — API
+                # returned "img_url must be set for image to video" otherwise.
+                inp = {"prompt": final_prompt, "img_url": media_url}
+                # Confirmed via live test: duration must be exactly 3, 4, or
+                # 5 — a discrete set, not a continuous range like wan2.7's.
+                # max(3, min(x, 5)) lands on exactly one of those three for
+                # any integer input, so this app's 10s target always clamps
+                # to 5 here — this model can never produce a full-length clip.
                 params: dict = {
                     "resolution": VIDEO_RESOLUTION,
                     "prompt_extend": True,
-                    "duration": max(2, min(duration_seconds, 15)),
+                    "duration": max(3, min(duration_seconds, 5)),
                 }
             elif is_wan27:
                 # wan2.7-i2v / wan2.8-i2v require input.media array
@@ -185,7 +273,9 @@ class VideoGen:
                     "prompt": final_prompt,
                     "media": [{"type": "first_frame", "url": media_url}],
                 }
-                params = {"duration": max(2, min(duration_seconds, 15))}
+                # Confirmed via live test: happyhorse's minimum duration is
+                # 3, not 2 — API returned "duration must be between 3 and 15".
+                params = {"duration": max(3, min(duration_seconds, 15))}
             else:
                 # Unknown I2V model — try media array format as a safe default
                 inp = {
@@ -196,17 +286,73 @@ class VideoGen:
 
             return {"model": model, "input": inp, "parameters": params}
 
-        def _t2v_body() -> dict:
-            t2v_lower = MODEL_T2V.lower()
-            supports_duration = any(m in t2v_lower for m in _T2V_SUPPORTS_DURATION)
-            params: dict = {
-                "resolution": VIDEO_RESOLUTION,
-                "prompt_extend": True,
+        def _r2v_body(model: str) -> dict:
+            """R2V, restricted to a single silent reference_image — see _R2V_MODELS
+            comment above for why the multi-reference/voice-cloning capability this
+            schema actually supports is deliberately not used.
+
+            Schema confirmed from DashScope example curls for wan2.7-r2v-2026-06-12
+            and happyhorse-1.1-r2v/happyhorse-1.0-r2v. "ratio" is new here — no other
+            model family in this file uses it. happyhorse's example omitted
+            prompt_extend/watermark entirely, so they're left off for that family
+            rather than guessing whether it accepts and ignores them or rejects them.
+            """
+            model_lower = model.lower()
+            is_happyhorse = any(m in model_lower for m in _HAPPYHORSE_I2V_MODELS)
+
+            inp = {
+                "prompt": final_prompt,
+                "media": [{"type": "reference_image", "url": media_url}],
             }
-            if supports_duration:
-                params["duration"] = max(2, min(duration_seconds, 10))
+            if is_happyhorse:
+                # Confirmed via live test on happyhorse i2v (same family,
+                # same minimum applies): duration floor is 3, not 2.
+                params: dict = {
+                    "resolution": VIDEO_RESOLUTION,
+                    "ratio": "16:9",
+                    "duration": max(3, min(duration_seconds, 15)),
+                }
+            else:
+                # wan2.7-r2v family. The example curl sets prompt_extend:false and
+                # watermark:true — deliberately overridden here to match this app's
+                # existing wan2.7 convention (prompt_extend on) and to avoid a
+                # visible watermark on generated clips, rather than copying the
+                # example's choices verbatim.
+                params = {
+                    "resolution": VIDEO_RESOLUTION,
+                    "ratio": "16:9",
+                    "prompt_extend": True,
+                    "watermark": False,
+                    "duration": max(2, min(duration_seconds, 15)),
+                }
+            return {"model": model, "input": inp, "parameters": params}
+
+        def _build_i2v_or_r2v_body(model: str) -> dict:
+            """Dispatch to the R2V schema builder for R2V models, I2V schema
+            otherwise — checked first since "happyhorse" alone
+            (_HAPPYHORSE_I2V_MODELS) would otherwise misclassify
+            happyhorse-*-r2v as a plain I2V model."""
+            model_lower = model.lower()
+            if any(m in model_lower for m in _R2V_MODELS):
+                return _r2v_body(model)
+            return _i2v_body(model)
+
+        def _t2v_body(model: str) -> dict:
+            model_lower = model.lower()
+            supports_duration = any(m in model_lower for m in _T2V_SUPPORTS_DURATION)
+            is_happyhorse = any(m in model_lower for m in _HAPPYHORSE_I2V_MODELS)
+
+            if is_happyhorse:
+                # Confirmed via live test: happyhorse's duration floor is 3,
+                # not 2 — API returned "duration must be between 3 and 15".
+                params: dict = {"duration": max(3, min(duration_seconds, 15))}
+            else:
+                params = {"resolution": VIDEO_RESOLUTION, "prompt_extend": True}
+                if supports_duration:
+                    params["duration"] = max(2, min(duration_seconds, 10))
+
             return {
-                "model": MODEL_T2V,
+                "model": model,
                 "input": {"prompt": final_prompt},
                 "parameters": params,
             }
@@ -216,29 +362,74 @@ class VideoGen:
                 "AllocationQuota" in resp.text or "FreeTier" in resp.text
             )
 
+        def _submit_t2v_chain(client: httpx.Client) -> httpx.Response:
+            """Try every T2V candidate in order; last one raises for real."""
+            if not T2V_MODEL_PRIORITY:
+                raise RuntimeError("T2V_MODEL_PRIORITY is empty — no T2V model to fall back to.")
+
+            _resp: httpx.Response | None = None
+            for _t2v_model in T2V_MODEL_PRIORITY:
+                _resp = client.post(_SUBMIT_URL, json=_t2v_body(_t2v_model), headers=self._headers)
+                if _resp.is_success:
+                    self.last_model_used = _t2v_model
+                    print(f"[VideoGen] T2V submitted on {_t2v_model}")
+                    return _resp
+                _err = f"{_resp.status_code}: {_resp.text[:200]}"
+                if _is_quota_error(_resp):
+                    print(f"[VideoGen] {_t2v_model} quota exhausted — trying next T2V model")
+                else:
+                    print(f"[VideoGen] {_t2v_model} submission failed ({_err}) — trying next T2V model")
+            # Every T2V candidate failed too — this is a genuine hard failure,
+            # there is no further fallback tier below T2V.
+            self.warnings.append(
+                "⚠️ All T2V models exhausted or failed too — no fallback left. "
+                "Check DashScope billing, or add more models to T2V_MODEL_PRIORITY."
+            )
+            assert _resp is not None  # loop ran ≥1 time since the list isn't empty
+            return _resp
+
         # Large base64 payloads need an extended write timeout (default 30s is too short).
         _submit_timeout = httpx.Timeout(connect=15, read=60, write=300, pool=15)
         with httpx.Client(timeout=_submit_timeout) as client:
+            if test_only_model:
+                # Diagnostic path — exactly one model, no fallback, raises on
+                # failure instead of trying anything else.
+                _body = _build_i2v_or_r2v_body(test_only_model) if media_url else _t2v_body(test_only_model)
+                resp = client.post(_SUBMIT_URL, json=_body, headers=self._headers)
+                if not resp.is_success:
+                    raise RuntimeError(f"[TEST] {test_only_model} submit failed {resp.status_code}: {resp.text}")
+                self.last_model_used = test_only_model
+                task_id = resp.json().get("output", {}).get("task_id")
+                if not task_id:
+                    raise RuntimeError(f"[TEST] {test_only_model} — no task_id in response: {resp.json()}")
+                return task_id
+
             if media_url:
                 _uri_type = "data URI" if media_url.startswith("data:") else "URL"
                 print(f"[VideoGen] I2V mode — reference image as {_uri_type} ({len(media_url)} chars)")
-                resp = client.post(_SUBMIT_URL, json=_i2v_body(MODEL_I2V), headers=self._headers)
-                if not resp.is_success:
+
+                resp = None
+                for _model in I2V_MODEL_PRIORITY:
+                    resp = client.post(_SUBMIT_URL, json=_build_i2v_or_r2v_body(_model), headers=self._headers)
+                    if resp.is_success:
+                        self.last_model_used = _model
+                        print(f"[VideoGen] I2V submitted on {_model}")
+                        break
                     err = f"{resp.status_code}: {resp.text[:200]}"
                     if _is_quota_error(resp):
-                        self.warnings.append(
-                            "⚠️ I2V quota exhausted. Generating without reference frame using T2V. "
-                            "Check DashScope billing or try again later."
-                        )
+                        print(f"[VideoGen] {_model} quota exhausted — trying next I2V model")
                     else:
-                        self.warnings.append(
-                            f"⚠️ I2V submission failed ({err}). Falling back to T2V."
-                        )
-                    print(f"[VideoGen] I2V failed ({err}), falling back to T2V")
-                    resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
+                        print(f"[VideoGen] {_model} submission failed ({err}) — trying next I2V model")
+                else:
+                    # Every I2V candidate in the priority list failed — fall back to the T2V chain.
+                    self.warnings.append(
+                        "⚠️ All I2V models exhausted or failed. Generating without reference frame using T2V."
+                    )
+                    print("[VideoGen] All I2V candidates failed, falling back to T2V chain")
+                    resp = _submit_t2v_chain(client)
             else:
                 print(f"[VideoGen] T2V mode — no reference image (ref_image_url empty or fetch failed)")
-                resp = client.post(_SUBMIT_URL, json=_t2v_body(), headers=self._headers)
+                resp = _submit_t2v_chain(client)
 
         if not resp.is_success:
             raise RuntimeError(f"Video submit failed {resp.status_code}: {resp.text}")
