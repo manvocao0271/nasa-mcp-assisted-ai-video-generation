@@ -32,6 +32,12 @@ class StoryboardAgent:
 
     _SUPPORTED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
 
+    # See ScriptAgent's identical constants/method for the full rationale —
+    # kept in sync since both classes independently fetch and embed the same
+    # kind of reference image.
+    _MAX_IMAGE_DIMENSION = 1568
+    _RESIZE_SKIP_THRESHOLD_BYTES = 1_500_000
+
     @classmethod
     def _url_is_usable_image(cls, url: str) -> bool:
         try:
@@ -52,7 +58,25 @@ class StoryboardAgent:
             ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
             if ct not in cls._SUPPORTED_IMAGE_TYPES:
                 return None
-            b64 = base64.b64encode(r.content).decode()
+
+            raw = r.content
+            if len(raw) > cls._RESIZE_SKIP_THRESHOLD_BYTES:
+                try:
+                    import io
+                    from PIL import Image
+                    img = Image.open(io.BytesIO(raw)).convert("RGB")
+                    img.thumbnail(
+                        (cls._MAX_IMAGE_DIMENSION, cls._MAX_IMAGE_DIMENSION),
+                        Image.Resampling.LANCZOS,
+                    )
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG", quality=85)
+                    raw = buf.getvalue()
+                    ct = "image/jpeg"
+                except Exception:
+                    pass
+
+            b64 = base64.b64encode(raw).decode()
             return f"data:{ct};base64,{b64}"
         except Exception:
             return None

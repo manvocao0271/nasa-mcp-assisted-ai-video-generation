@@ -48,6 +48,17 @@ class ScriptAgent:
 
     _SUPPORTED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
 
+    # Long-edge cap in pixels for images embedded as base64 in a vision
+    # request — plenty of detail for captioning, and keeps the resulting
+    # payload well under any API request-size limit regardless of how large
+    # the source original is (APOD originals can run 20-30MB+, with no
+    # smaller variant available via URL substitution the way the NASA Image
+    # Library's ~thumb/~medium/~large naming convention allows).
+    _MAX_IMAGE_DIMENSION = 1568
+    # Skip re-encoding images already smaller than this — no need to spend
+    # the CPU time or lose quality on something already a safe size.
+    _RESIZE_SKIP_THRESHOLD_BYTES = 1_500_000
+
     @classmethod
     def _url_is_usable_image(cls, url: str) -> bool:
         try:
@@ -68,7 +79,33 @@ class ScriptAgent:
             ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
             if ct not in cls._SUPPORTED_IMAGE_TYPES:
                 return None
-            b64 = base64.b64encode(r.content).decode()
+
+            raw = r.content
+            if len(raw) > cls._RESIZE_SKIP_THRESHOLD_BYTES:
+                # A ~26MB original becomes a ~35MB base64 JSON payload once
+                # embedded in the request — some API gateways respond to
+                # that by forcibly resetting the connection mid-upload
+                # (errno 10054) rather than returning a clean error. Resize
+                # before encoding instead of sending the raw original.
+                try:
+                    import io
+                    from PIL import Image
+                    img = Image.open(io.BytesIO(raw)).convert("RGB")
+                    img.thumbnail(
+                        (cls._MAX_IMAGE_DIMENSION, cls._MAX_IMAGE_DIMENSION),
+                        Image.Resampling.LANCZOS,
+                    )
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG", quality=85)
+                    raw = buf.getvalue()
+                    ct = "image/jpeg"
+                except Exception:
+                    # Pillow missing or image undecodable — fall through and
+                    # try sending the original rather than dropping the
+                    # reference image entirely.
+                    pass
+
+            b64 = base64.b64encode(raw).decode()
             return f"data:{ct};base64,{b64}"
         except Exception:
             return None

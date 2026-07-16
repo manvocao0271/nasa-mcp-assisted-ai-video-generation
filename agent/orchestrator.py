@@ -150,31 +150,38 @@ class Orchestrator:
 
         # ── Video ─────────────────────────────────────────────────────────────
         total = len(storyboard)
-
-        _first_entry = storyboard[0] if storyboard else {}
-        _first_i2v = bool(_first_entry.get("ref_image_url"))
-        yield {"stage": "video", "status": "running",
-               "detail": f"Rendering clip 1/{total}…" if total else "No scenes to render",
-               "model": MODEL_I2V if _first_i2v else MODEL_T2V,
-               "mode": "I2V" if _first_i2v else "T2V",
-               "resolution": VIDEO_RESOLUTION, "duration": CLIP_DURATION}
+        if total == 0:
+            yield {"stage": "video", "status": "running", "detail": "No scenes to render",
+                   "resolution": VIDEO_RESOLUTION, "duration": CLIP_DURATION}
 
         video_gen = VideoGen(self.qwen_api_key, cancel_event=self.cancel_event, output_dir=self.output_dir)
         clips: list[Path] = []
 
         for i, entry in enumerate(storyboard):
-            if i > 0:
-                _is_i2v = bool(entry.get("ref_image_url"))
-                yield {"stage": "video", "status": "running",
-                       "detail": f"Rendering clip {i + 1}/{total}…",
-                       "model": MODEL_I2V if _is_i2v else MODEL_T2V,
-                       "mode": "I2V" if _is_i2v else "T2V",
-                       "resolution": VIDEO_RESOLUTION, "duration": CLIP_DURATION}
+            _is_i2v_attempt = bool(entry.get("ref_image_url"))
+            yield {"stage": "video", "status": "running",
+                   "detail": f"Rendering clip {i + 1}/{total}…",
+                   # Best guess only — this is the *first* model that will be tried,
+                   # not necessarily what succeeds. See the clip_done update below,
+                   # sourced from video_gen.last_model_used, for the actual answer.
+                   "model": MODEL_I2V if _is_i2v_attempt else MODEL_T2V,
+                   "mode": "I2V" if _is_i2v_attempt else "T2V",
+                   "resolution": VIDEO_RESOLUTION, "duration": CLIP_DURATION}
+
             clip = video_gen.generate_one(entry)
             clips.append(clip)
+
             for w in video_gen.warnings:
                 yield {"stage": "warning", "status": "warning", "detail": w}
             video_gen.warnings.clear()
+
+            # Ground truth: whichever model in the fallback chain actually
+            # succeeded for this specific clip — set by VideoGen itself on
+            # every submission attempt, including every fallback hop.
+            yield {"stage": "video", "status": "clip_done",
+                   "detail": f"Clip {i + 1}/{total} rendered using {video_gen.last_model_used}",
+                   "model": video_gen.last_model_used,
+                   "clip_index": i + 1, "total": total}
 
         detail = f"{len(clips)} clip(s) generated" if clips else "No clips generated"
         yield {"stage": "video", "status": "done", "detail": detail}

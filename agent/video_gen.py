@@ -173,12 +173,24 @@ class VideoGen:
             counter += 1
         return candidate
 
-    @staticmethod
-    def _fetch_as_data_uri(url: str) -> str | None:
+    # Same rationale/constants as ScriptAgent/StoryboardAgent's identical
+    # resize step — kept in sync across all three since they all embed the
+    # same kind of reference image.
+    _MAX_IMAGE_DIMENSION = 1568
+    _RESIZE_SKIP_THRESHOLD_BYTES = 1_500_000
+
+    @classmethod
+    def _fetch_as_data_uri(cls, url: str) -> str | None:
         """Download *url* and return a base64 data URI for inline image submission.
 
         For NASA image library URLs (``~large.jpg``) we first try a smaller
-        ``~medium.jpg`` variant to stay within API payload limits.
+        ``~medium.jpg`` variant to stay within API payload limits. Large
+        downloads (e.g. full-resolution APOD originals, which can run
+        20-30MB+ with no smaller variant available via URL substitution)
+        are resized before encoding — Wan's own server-side fetcher has been
+        observed failing outright ("Failed to download <url>") on files this
+        large, the same failure mode we already fixed client-side for the
+        vision-model calls in ScriptAgent/StoryboardAgent.
         """
         _SUPPORTED = ("image/jpeg", "image/png", "image/webp")
         # NASA Image Library only allows ~thumb.jpg from external servers;
@@ -201,7 +213,25 @@ class VideoGen:
                 ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
                 if ct not in _SUPPORTED:
                     ct = "image/jpeg"
-                b64 = base64.b64encode(r.content).decode()
+
+                raw = r.content
+                if len(raw) > cls._RESIZE_SKIP_THRESHOLD_BYTES:
+                    try:
+                        import io
+                        from PIL import Image
+                        img = Image.open(io.BytesIO(raw)).convert("RGB")
+                        img.thumbnail(
+                            (cls._MAX_IMAGE_DIMENSION, cls._MAX_IMAGE_DIMENSION),
+                            Image.Resampling.LANCZOS,
+                        )
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG", quality=85)
+                        raw = buf.getvalue()
+                        ct = "image/jpeg"
+                    except Exception:
+                        pass  # fall through and try sending the original
+
+                b64 = base64.b64encode(raw).decode()
                 return f"data:{ct};base64,{b64}"
             except Exception:
                 continue
@@ -225,15 +255,14 @@ class VideoGen:
         """
         raw_url = ref_image_url.strip() if ref_image_url else ""
 
-        # Wan 2.7 i2v accepts a plain HTTPS URL in media[0].url — use the raw URL
-        # directly whenever possible.  Only fall back to a base64 data URI for
-        # NASA Image Library assets whose large/orig variants return 403 on external
-        # servers; in those cases _fetch_as_data_uri resolves to a thumb variant.
-        _nasa_image_lib = "images-assets.nasa.gov" in raw_url
-        if raw_url and _nasa_image_lib:
-            media_url: str = self._fetch_as_data_uri(raw_url) or raw_url
-        else:
-            media_url = raw_url  # pass URL directly; Wan API fetches it
+        # Always try to pre-fetch (and resize if needed) ourselves rather
+        # than passing the raw URL straight through and trusting Wan's
+        # server-side fetcher to succeed — that's failed outright on large
+        # NASA originals from domains other than images-assets.nasa.gov
+        # (e.g. apod.nasa.gov), so this is no longer domain-specific. Only
+        # fall back to the raw URL if our own fetch attempt fails, since a
+        # working raw URL is still better than no reference image at all.
+        media_url: str = (self._fetch_as_data_uri(raw_url) or raw_url) if raw_url else ""
 
         final_prompt = f"{prompt}\n\n{self._build_motion_directives(duration_seconds)}"
 

@@ -236,7 +236,14 @@ def _pipeline_log_html(updates: list[dict]) -> str:
         entries = stage_updates[stage]
         icon, label = _STAGE_META.get(stage, ("●", stage.title()))
 
-        model     = next((e.get("model")      for e in entries if e.get("model")),      None)
+        # Prefer the ground-truth model from a completed clip (reflects
+        # whatever the fallback chain actually used) over the pre-call guess
+        # that's only ever the first model attempted.
+        model = (
+            next((e.get("model") for e in reversed(entries)
+                  if e.get("status") == "clip_done" and e.get("model")), None)
+            or next((e.get("model") for e in entries if e.get("model")), None)
+        )
         mode      = next((e.get("mode")       for e in entries if e.get("mode")),       None)
         resolution= next((e.get("resolution") for e in entries if e.get("resolution")), None)
         duration  = next((e.get("duration")   for e in entries if e.get("duration")),   None)
@@ -287,6 +294,11 @@ def _pipeline_log_html(updates: list[dict]) -> str:
                         html.append(
                             f'<div class="log-scene">Scene {sc_n}: {cap}…</div>'
                         )
+            elif status == "clip_done":
+                # Ground truth per-clip result — distinct from the generic
+                # "running" arrow above it, since this specific clip really is
+                # finished, even though the overall video stage may not be yet.
+                html.append(f'<div class="log-entry log-done">✓&nbsp;{detail}</div>')
             else:
                 html.append(f'<div class="log-entry log-running">→&nbsp;{detail}</div>')
 
@@ -365,6 +377,12 @@ def _launch_pipeline(prompt_text: str) -> None:
                     "Video generation quota exhausted. "
                     "Disable \"Use free tier only\" in the DashScope console."
                 )
+            elif "Connection error" in detail and exc.__cause__ is not None:
+                # openai's APIConnectionError message is just "Connection
+                # error." — the real cause (DNS failure, TLS handshake
+                # failure, proxy rejection, etc.) is chained onto __cause__
+                # via "raise ... from err" but never surfaced by default.
+                detail = f"Connection error: {exc.__cause__}"
             _q.put({"stage": "error", "status": "error", "detail": detail})
         finally:
             _q.put(None)
