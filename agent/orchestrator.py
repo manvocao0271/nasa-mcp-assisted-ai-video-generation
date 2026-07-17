@@ -178,10 +178,16 @@ class Orchestrator:
             # Ground truth: whichever model in the fallback chain actually
             # succeeded for this specific clip — set by VideoGen itself on
             # every submission attempt, including every fallback hop.
+            # clip_path lets the UI show exactly this run's clips without
+            # falling back to a directory-wide glob, which would otherwise
+            # pick up leftover files from a previous run in the same
+            # conversation (e.g. scene_1.mp4 from an earlier successful run,
+            # wrongly shown for a later run that failed before finishing).
             yield {"stage": "video", "status": "clip_done",
                    "detail": f"Clip {i + 1}/{total} rendered using {video_gen.last_model_used}",
                    "model": video_gen.last_model_used,
-                   "clip_index": i + 1, "total": total}
+                   "clip_index": i + 1, "total": total,
+                   "clip_path": str(clip)}
 
         detail = f"{len(clips)} clip(s) generated" if clips else "No clips generated"
         yield {"stage": "video", "status": "done", "detail": detail}

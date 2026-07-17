@@ -13,7 +13,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 from openai import AuthenticationError, APIError
 
 from agent.chat_agent import ChatAgent
@@ -68,20 +67,21 @@ _STAGE_DETAIL_LABELS = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _queue_image(img: dict, description: str, data_context: dict) -> None:
-    """Append an image to the video queue, deduplicating by URL."""
+    """Set the single reference image for the video pipeline, replacing any
+    previous selection (queue is capped at 1 — see REFERENCE IMAGE label)."""
     url = img.get("url", "")
     if not url:
         return
     if any(item["url"] == url for item in st.session_state.video_queue):
         return
-    st.session_state.video_queue.append({
+    st.session_state.video_queue = [{
         "url": url,
         "thumb_url": img.get("thumb_url", ""),
         "caption": img.get("caption", ""),
         "source": img.get("source", "NASA"),
         "data_context": data_context,
         "description": description,
-    })
+    }]
     _save_studio_state()
 
 
@@ -398,7 +398,7 @@ def _render_studio_panel() -> None:
     st.markdown('<p class="studio-title">Video Studio</p>', unsafe_allow_html=True)
 
     # ── INPUTS ───────────────────────────────────────────────────────────────
-    st.markdown('<div class="studio-section">REFERENCE IMAGES (max 3)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="studio-section">REFERENCE IMAGE (max 1)</div>', unsafe_allow_html=True)
 
     if _q:
         for _qi, _item in enumerate(_q):
@@ -526,12 +526,18 @@ def _render_studio_panel() -> None:
         st.markdown('<hr class="studio-hr">', unsafe_allow_html=True)
         st.markdown('<div class="studio-section">OUTPUT</div>', unsafe_allow_html=True)
 
-        _clips_dir = _session_dir / "clips"
         _m_clips = [Path(p) for p in _manifest.get("clips", []) if Path(p).exists()]
-        _scene_clips = _m_clips or (
-            sorted(_clips_dir.glob("scene_*.mp4"), key=lambda p: p.stat().st_mtime)
-            if _clips_dir.exists() else []
-        )
+        # Fallback for a run that reached the video stage but didn't finish
+        # cleanly (e.g. failed partway through): use exactly the clips THIS
+        # run's clip_done events reported, in order — never a directory-wide
+        # glob, which would silently include leftover files from an earlier,
+        # separate run in the same conversation.
+        _run_clips = [
+            Path(u["clip_path"]) for u in _updates
+            if u.get("stage") == "video" and u.get("status") == "clip_done"
+            and u.get("clip_path") and Path(u["clip_path"]).exists()
+        ]
+        _scene_clips = _m_clips or _run_clips
         for _clip in _scene_clips:
             st.caption(_clip.name)
             st.video(str(_clip))
@@ -597,6 +603,7 @@ if st.session_state.get("_studio_state_restored_for") != st.session_state.conver
     st.session_state._pipeline_merged_assets = {}
     st.session_state._pipeline_prompt = ""
     st.session_state._pipeline_chat_desc = ""
+    st.session_state.studio_open = False
 
     _sf = _session_dir / "studio_state.json"
     if _sf.exists():
@@ -605,8 +612,7 @@ if st.session_state.get("_studio_state_restored_for") != st.session_state.conver
             st.session_state.video_queue        = _ss.get("video_queue", [])
             st.session_state._pipeline_updates  = _ss.get("pipeline_updates", [])
             st.session_state._pipeline_run_saved= _ss.get("pipeline_run_saved", False)
-            if _ss.get("studio_open"):
-                st.session_state.studio_open = True
+            st.session_state.studio_open        = bool(_ss.get("studio_open", False))
         except Exception:
             pass
 
@@ -633,6 +639,7 @@ with st.sidebar:
     _studio_label = "✕  Close Studio" if st.session_state.get("studio_open") else "Video Studio"
     if st.button(_studio_label, use_container_width=True, key="toggle_studio_btn"):
         st.session_state.studio_open = not st.session_state.get("studio_open", False)
+        _save_studio_state()
         st.rerun()
 
     st.markdown('<hr>', unsafe_allow_html=True)
@@ -823,7 +830,7 @@ with _content_area:
         # the layout so they don't push the carousel down.
         # Infinite loop: 3 copies, start in middle copy (offset N), snap on transitionend.
         _sug_json = json.dumps(_SUGGESTIONS)
-        components.html(
+        st.iframe(
             f"""<style>
 *{{box-sizing:border-box;margin:0;padding:0;}}
 body{{background:transparent;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;}}
@@ -1093,8 +1100,9 @@ body{{background:transparent;font-family:'Inter',-apple-system,BlinkMacSystemFon
         # DOM.  Instead, a tiny zero-height iframe runs JS in the parent doc:
         # it finds each .img-q-marker element, locates the hidden button in
         # the same stVerticalBlock, and forwards clicks on the image to it.
-        components.html(
+        st.iframe(
             """
+            <style>html,body{margin:0;padding:0;overflow:hidden;background:transparent;}</style>
             <script>
             (function() {
                 var pd = window.parent.document;
@@ -1141,7 +1149,7 @@ body{{background:transparent;font-family:'Inter',-apple-system,BlinkMacSystemFon
             })();
             </script>
             """,
-            height=0,
+            height=1,
         )
 
         # ── Live streaming assistant turn ───────────────────────────────────
@@ -1221,8 +1229,8 @@ body{{background:transparent;font-family:'Inter',-apple-system,BlinkMacSystemFon
     # ── JS: clamp column heights + scroll chat to bottom (runs every render) ──
     # Handles both [11,8] (studio-open, 2 cols) and [4,11,4] (studio-closed, 3 cols).
     # chat column index: 0 for 2-col layout, 1 for 3-col layout.
-    components.html(
-        f"""<script>
+    st.iframe(
+        f"""<style>html,body{{margin:0;padding:0;overflow:hidden;background:transparent;}}</style><script>
 (function(){{var _t={time.time():.0f};var _hasMessages={'true' if st.session_state.get('messages') else 'false'};var _studioOpen={'true' if _studio_open else 'false'};
 var doc=window.parent.document;
 
@@ -1342,11 +1350,12 @@ for(var i=0;i<hbs.length;i++){{
 }}
 }})();
 </script>""",
-        height=0,
+        height=1,
     )
 
-components.html(
+st.iframe(
     """
+    <style>html,body{margin:0;padding:0;overflow:hidden;background:transparent;}</style>
     <script>
     (function() {
       var doc = window.parent.document;
@@ -1390,7 +1399,7 @@ components.html(
     })();
     </script>
     """,
-    height=0,
+    height=1,
 )
 
 # ── Studio panel column ───────────────────────────────────────────────────────
