@@ -135,9 +135,19 @@ def _save_chat_turn(
 
 
 def _messages_from_history(history: list[dict]) -> list[dict]:
-    """Convert RunDB history rows back into session-state message dicts."""
+    """Convert RunDB history rows back into session-state message dicts.
+
+    Skips Video Studio pipeline runs entirely — they're never shown as chat
+    messages, only in the Studio panel itself. Distinguished from real chat
+    turns by manifest: _save_chat_turn always saves manifest={}, while every
+    pipeline completion (see the OUTPUT block's _db.save_run call) always
+    saves a real, non-empty manifest — so this reliably tells them apart
+    without needing a schema change or a new column.
+    """
     msgs: list[dict] = []
     for run in history:
+        if run.get("manifest"):
+            continue
         msgs.append({"role": "user", "content": run["user_message"]})
         raw = dict(run.get("assets") or {})
         retrieved = raw.pop("_retrieved", [])
@@ -287,13 +297,16 @@ def _pipeline_log_html(updates: list[dict]) -> str:
                 continue
             if status == "done":
                 html.append(f'<div class="log-entry log-done">✓&nbsp;{detail}</div>')
-                for scene in entry.get("scenes", [])[:2]:
-                    cap = scene.get("caption", "")[:70]
-                    sc_n = scene.get("scene", "")
-                    if cap:
-                        html.append(
-                            f'<div class="log-scene">Scene {sc_n}: {cap}…</div>'
-                        )
+                for scene in entry.get("scenes", []):
+                    # Script entries carry "caption", storyboard entries
+                    # carry "prompt" — show whichever is present, in full.
+                    # No numbering prefix and no multi-item cap: the queue
+                    # is capped at 1 reference image, so there is always
+                    # exactly one scene.
+                    text = scene.get("caption") or scene.get("prompt") or ""
+                    if text:
+                        _escaped = _html.escape(text)
+                        html.append(f'<div class="log-scene">{_escaped}</div>')
             elif status == "clip_done":
                 # Ground truth per-clip result — distinct from the generic
                 # "running" arrow above it, since this specific clip really is

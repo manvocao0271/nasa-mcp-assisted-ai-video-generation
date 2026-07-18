@@ -119,14 +119,18 @@ class Orchestrator:
             yield {"stage": "script", "status": "running", "detail": "Loading cached script…", "model": MODEL_VL_PLUS}
             yield {"stage": "script", "status": "done",
                    "detail": f"Loaded from cache ({len(script.get('scenes', []))} scenes)",
-                   "model": MODEL_VL_PLUS}
+                   "model": MODEL_VL_PLUS,
+                   "scenes": [{"caption": s.get("caption", "")} for s in script.get("scenes", [])]}
         else:
             yield {"stage": "script", "status": "running", "detail": f"Writing {n} scene caption(s)…", "model": MODEL_VL_PLUS}
             script = ScriptAgent(self.qwen_api_key, output_dir=self.output_dir).run(assets, user_message, chat_description=chat_description)
             yield {"stage": "script", "status": "done",
                    "detail": f"{len(script['scenes'])} scene(s) written",
                    "model": MODEL_VL_PLUS,
-                   "scenes": [{"scene": s.get("scene"), "caption": s.get("caption", "")[:80]}
+                   # Full caption, no truncation — the queue is capped at 1
+                   # reference image so there's always exactly one scene,
+                   # meaning this is the entire script, not a preview of it.
+                   "scenes": [{"caption": s.get("caption", "")}
                                for s in script.get("scenes", [])]}
 
         # ── Storyboard ────────────────────────────────────────────────────────
@@ -140,13 +144,15 @@ class Orchestrator:
             yield {"stage": "storyboard", "status": "running", "detail": "Loading cached storyboard…", "model": MODEL_VL_PLUS}
             yield {"stage": "storyboard", "status": "done",
                    "detail": f"Loaded from cache ({len(storyboard)} prompts)",
-                   "model": MODEL_VL_PLUS}
+                   "model": MODEL_VL_PLUS,
+                   "scenes": [{"prompt": entry.get("prompt", "")} for entry in storyboard]}
         else:
             yield {"stage": "storyboard", "status": "running", "detail": "Generating visual prompts…", "model": MODEL_VL_PLUS}
             storyboard = StoryboardAgent(self.qwen_api_key, output_dir=self.output_dir).run(script, assets, user_message, chat_description=chat_description)
             yield {"stage": "storyboard", "status": "done",
                    "detail": f"{len(storyboard)} scene prompt(s) ready",
-                   "model": MODEL_VL_PLUS}
+                   "model": MODEL_VL_PLUS,
+                   "scenes": [{"prompt": entry.get("prompt", "")} for entry in storyboard]}
 
         # ── Video ─────────────────────────────────────────────────────────────
         total = len(storyboard)

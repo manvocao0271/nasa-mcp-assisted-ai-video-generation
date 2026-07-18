@@ -9,8 +9,6 @@ Launch:
 """
 from __future__ import annotations
 
-import os
-
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -40,8 +38,14 @@ if not st.session_state.get("_cleanup_done"):
     st.session_state._cleanup_done = True
 
 # ── API key guard ──────────────────────────────────────────────────────────────
-if not os.environ.get("QWEN_API_KEY", ""):
-    st.error("**QWEN_API_KEY is not set.** Add it to your .env file and restart.")
+from agent.qwen_client import _load_qwen_api_keys
+
+if not _load_qwen_api_keys():
+    st.error(
+        "**No Qwen Cloud API key found.** Set `QWEN_API_KEY` in your .env file "
+        "(or `QWEN_API_KEY_0`, `QWEN_API_KEY_1`, ... for multi-account cycling), "
+        "then restart."
+    )
     st.stop()
 
 # ── Navigation ─────────────────────────────────────────────────────────────────
