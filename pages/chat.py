@@ -1252,6 +1252,26 @@ var _ss=doc.getElementById('_will_scroll_lock');
 if(!_ss){{_ss=doc.createElement('style');_ss.id='_will_scroll_lock';doc.head.appendChild(_ss);}}
 _ss.textContent='html,body{{background:#000!important;}}html,body,[data-testid="stApp"],[data-testid="stAppViewContainer"],[data-testid="stMainBlockContainer"]{{overflow:hidden!important;max-height:100vh!important;padding-bottom:0!important;}}';
 
+// ── 1b. Persist slide transition rules in <head> ─────────────────────────────
+// Ease-in-out width transition on the chat/studio columns themselves (not
+// inline — a stylesheet rule survives every rerun's inline style.setProperty
+// calls below, since transition/animation aren't among the properties those
+// calls touch). The .will-chat-col / .will-studio-slide-col marker classes
+// are applied to the SAME persistent column DOM nodes on every render further
+// down — Streamlit keeps these nodes alive across reruns (this file's own
+// JS already relies on that: repeated style.setProperty/classList calls on
+// them only make sense if the node persists), so a width/flex-basis change
+// between one rerun and the next should animate smoothly rather than snap.
+// The studio content's entrance keyframe only plays on actual DOM insertion
+// (a plain CSS rule, not a JS-toggled class), so it fires once when the
+// panel opens and does not re-trigger on every 2s pipeline-poll rerun.
+var _st=doc.getElementById('_will_slide_transitions');
+if(!_st){{_st=doc.createElement('style');_st.id='_will_slide_transitions';doc.head.appendChild(_st);}}
+_st.textContent=
+  '.will-chat-col,.will-studio-slide-col{{transition:flex-basis .38s cubic-bezier(.4,0,.2,1),width .38s cubic-bezier(.4,0,.2,1),max-width .38s cubic-bezier(.4,0,.2,1),flex-grow .38s cubic-bezier(.4,0,.2,1),background-color .38s cubic-bezier(.4,0,.2,1),box-shadow .38s cubic-bezier(.4,0,.2,1)!important;}}'
+ +'@keyframes willStudioSlideIn{{from{{opacity:0;transform:translateX(28px);}}to{{opacity:1;transform:translateX(0);}}}}'
+ +'.will-studio-content-wrap{{animation:willStudioSlideIn .38s cubic-bezier(.2,0,.2,1) both;}}';
+
 // ── 2. Reset scroll on containers ────────────────────────────────────────────
 ['stApp','stAppViewContainer','stMainBlockContainer'].forEach(function(id){{
   var el=doc.querySelector('[data-testid="'+id+'"]');
@@ -1269,6 +1289,8 @@ for(var i=0;i<hbs.length;i++){{
   // Always 3 cols: [left, chat, studio] — chat is always cols[1]
   if(cols.length!==3)continue;
   var chatCol=cols[1];
+  chatCol.classList.add('will-chat-col');
+  cols[2].classList.add('will-studio-slide-col');
   hb.style.setProperty('overflow','visible','important');
   cols[2].style.setProperty('overflow-y','auto','important');
 
@@ -1302,6 +1324,8 @@ for(var i=0;i<hbs.length;i++){{
     cols[2].style.setProperty('padding','1rem 0.75rem 2rem','important');
     cols[2].style.removeProperty('width');
     cols[2].classList.add('will-studio-col');
+    var _studioContentWrap=cols[2].querySelector('[data-testid="stVerticalBlock"]');
+    if(_studioContentWrap)_studioContentWrap.classList.add('will-studio-content-wrap');
     cols[2].querySelectorAll('[data-testid="stVerticalBlock"],[data-testid="stVerticalBlockBorderWrapper"]').forEach(function(el){{
       el.style.setProperty('width','100%','important');
       el.style.setProperty('min-width','0','important');
