@@ -13,6 +13,8 @@ from typing import Callable
 
 import httpx
 
+from agent.qwen_client import _load_qwen_api_keys
+
 _DEFAULT_OUTPUT_DIR = Path("output")
 _DEFAULT_CLIPS_DIR = _DEFAULT_OUTPUT_DIR / "clips"
 
@@ -120,15 +122,31 @@ class VideoGen:
         cancel_event: threading.Event | None = None,
         output_dir: Path | None = None,
     ) -> None:
-        self.qwen_api_key = qwen_api_key
+        self.qwen_api_key = qwen_api_key  # kept for backward compat / display
+        self._api_keys = _load_qwen_api_keys(fallback=qwen_api_key)
+        if not self._api_keys:
+            raise ValueError(
+                "No Qwen Cloud API key available for video generation. Set "
+                "QWEN_API_KEY, or QWEN_API_KEY_0 / QWEN_API_KEY_1 / ... in "
+                ".env for multi-account cycling."
+            )
         self.poll_interval = poll_interval
         self.warnings: list[str] = []  # populated when I2V falls back to T2V
         self.last_model_used: str = ""  # which model the most recent _submit_job used
+        # Which key actually succeeded on the most recent _submit_job call —
+        # _poll_job MUST use this same key, not just any configured key: a
+        # task_id is scoped to the account that submitted it, so polling
+        # with a different account's key would fail even though that key
+        # is otherwise perfectly valid.
+        self._last_used_key: str = self._api_keys[0]
         self.cancel_event = cancel_event
         _out = output_dir if output_dir is not None else _DEFAULT_OUTPUT_DIR
         self.clips_dir = _out / "clips"
-        self._headers = {
-            "Authorization": f"Bearer {qwen_api_key}",
+
+    @staticmethod
+    def _headers_for(key: str) -> dict:
+        return {
+            "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "X-DashScope-Async": "enable",
         }
@@ -392,27 +410,38 @@ class VideoGen:
             )
 
         def _submit_t2v_chain(client: httpx.Client) -> httpx.Response:
-            """Try every T2V candidate in order; last one raises for real."""
+            """Try every T2V candidate in order; for each model, cycle
+            through every configured API key (separate accounts have
+            separate free-tier quota pools) before moving to the next
+            model. Last attempt raises for real."""
             if not T2V_MODEL_PRIORITY:
                 raise RuntimeError("T2V_MODEL_PRIORITY is empty — no T2V model to fall back to.")
 
             _resp: httpx.Response | None = None
             for _t2v_model in T2V_MODEL_PRIORITY:
-                _resp = client.post(_SUBMIT_URL, json=_t2v_body(_t2v_model), headers=self._headers)
-                if _resp.is_success:
-                    self.last_model_used = _t2v_model
-                    print(f"[VideoGen] T2V submitted on {_t2v_model}")
-                    return _resp
-                _err = f"{_resp.status_code}: {_resp.text[:200]}"
-                if _is_quota_error(_resp):
-                    print(f"[VideoGen] {_t2v_model} quota exhausted — trying next T2V model")
-                else:
-                    print(f"[VideoGen] {_t2v_model} submission failed ({_err}) — trying next T2V model")
-            # Every T2V candidate failed too — this is a genuine hard failure,
-            # there is no further fallback tier below T2V.
+                _body = _t2v_body(_t2v_model)
+                for _key_idx, _key in enumerate(self._api_keys):
+                    _resp = client.post(_SUBMIT_URL, json=_body, headers=self._headers_for(_key))
+                    if _resp.is_success:
+                        self.last_model_used = _t2v_model
+                        self._last_used_key = _key
+                        print(f"[VideoGen] T2V submitted on {_t2v_model} using key #{_key_idx} of {len(self._api_keys)}")
+                        return _resp
+                    _err = f"{_resp.status_code}: {_resp.text[:200]}"
+                    if _is_quota_error(_resp):
+                        print(f"[VideoGen] {_t2v_model} quota exhausted on key #{_key_idx} — trying next key")
+                        continue
+                    # Non-quota error (bad params, etc.) — identical request
+                    # would fail the same way on every other key too, so
+                    # don't waste attempts cycling keys; move to next model.
+                    print(f"[VideoGen] {_t2v_model} submission failed ({_err}) — non-quota error, moving to next model")
+                    break
+            # Every T2V candidate failed on every configured key too — this
+            # is a genuine hard failure, there is no further fallback tier.
             self.warnings.append(
-                "⚠️ All T2V models exhausted or failed too — no fallback left. "
-                "Check DashScope billing, or add more models to T2V_MODEL_PRIORITY."
+                f"⚠️ All T2V models exhausted or failed across all {len(self._api_keys)} "
+                "configured API key(s) — no fallback left. Check DashScope billing, "
+                "or add more models to T2V_MODEL_PRIORITY."
             )
             assert _resp is not None  # loop ran ≥1 time since the list isn't empty
             return _resp
@@ -421,13 +450,15 @@ class VideoGen:
         _submit_timeout = httpx.Timeout(connect=15, read=60, write=300, pool=15)
         with httpx.Client(timeout=_submit_timeout) as client:
             if test_only_model:
-                # Diagnostic path — exactly one model, no fallback, raises on
-                # failure instead of trying anything else.
+                # Diagnostic path — exactly one model, first configured key,
+                # no fallback, raises on failure instead of trying anything else.
                 _body = _build_i2v_or_r2v_body(test_only_model) if media_url else _t2v_body(test_only_model)
-                resp = client.post(_SUBMIT_URL, json=_body, headers=self._headers)
+                _key = self._api_keys[0]
+                resp = client.post(_SUBMIT_URL, json=_body, headers=self._headers_for(_key))
                 if not resp.is_success:
                     raise RuntimeError(f"[TEST] {test_only_model} submit failed {resp.status_code}: {resp.text}")
                 self.last_model_used = test_only_model
+                self._last_used_key = _key
                 task_id = resp.json().get("output", {}).get("task_id")
                 if not task_id:
                     raise RuntimeError(f"[TEST] {test_only_model} — no task_id in response: {resp.json()}")
@@ -437,29 +468,49 @@ class VideoGen:
                 _uri_type = "data URI" if media_url.startswith("data:") else "URL"
                 print(f"[VideoGen] I2V mode — reference image as {_uri_type} ({len(media_url)} chars)")
 
-                resp = None
+                resp: httpx.Response | None = None
+                _i2v_success = False
                 for _model in I2V_MODEL_PRIORITY:
-                    resp = client.post(_SUBMIT_URL, json=_build_i2v_or_r2v_body(_model), headers=self._headers)
-                    if resp.is_success:
-                        self.last_model_used = _model
-                        print(f"[VideoGen] I2V submitted on {_model}")
+                    _body = _build_i2v_or_r2v_body(_model)
+                    for _key_idx, _key in enumerate(self._api_keys):
+                        resp = client.post(_SUBMIT_URL, json=_body, headers=self._headers_for(_key))
+                        if resp.is_success:
+                            self.last_model_used = _model
+                            self._last_used_key = _key
+                            print(f"[VideoGen] I2V submitted on {_model} using key #{_key_idx} of {len(self._api_keys)}")
+                            _i2v_success = True
+                            break
+                        err = f"{resp.status_code}: {resp.text[:200]}"
+                        if _is_quota_error(resp):
+                            print(f"[VideoGen] {_model} quota exhausted on key #{_key_idx} — trying next key")
+                            continue
+                        # Non-quota error — identical request would fail the
+                        # same way on every other key, so don't waste
+                        # attempts cycling keys; move to the next model.
+                        print(f"[VideoGen] {_model} submission failed ({err}) — non-quota error, moving to next model")
                         break
-                    err = f"{resp.status_code}: {resp.text[:200]}"
-                    if _is_quota_error(resp):
-                        print(f"[VideoGen] {_model} quota exhausted — trying next I2V model")
-                    else:
-                        print(f"[VideoGen] {_model} submission failed ({err}) — trying next I2V model")
-                else:
-                    # Every I2V candidate in the priority list failed — fall back to the T2V chain.
+                    if _i2v_success:
+                        break
+
+                if not _i2v_success:
+                    # Every I2V (model, key) combination failed — fall back to the T2V chain.
                     self.warnings.append(
-                        "⚠️ All I2V models exhausted or failed. Generating without reference frame using T2V."
+                        f"⚠️ All I2V models exhausted or failed across all {len(self._api_keys)} "
+                        "configured API key(s). Generating without reference frame using T2V."
                     )
-                    print("[VideoGen] All I2V candidates failed, falling back to T2V chain")
+                    print("[VideoGen] All I2V candidates failed on all keys, falling back to T2V chain")
                     resp = _submit_t2v_chain(client)
             else:
                 print(f"[VideoGen] T2V mode — no reference image (ref_image_url empty or fetch failed)")
                 resp = _submit_t2v_chain(client)
 
+        # resp is always reassigned from None by this point on every actual
+        # code path (either a successful I2V/T2V submission, or the T2V
+        # chain fallback — which itself always returns a real Response, see
+        # its own assert) — but the type checker can't prove that across the
+        # nested loops above, so narrow explicitly. Same pattern as
+        # _submit_t2v_chain's own assert just above.
+        assert resp is not None
         if not resp.is_success:
             raise RuntimeError(f"Video submit failed {resp.status_code}: {resp.text}")
 
@@ -527,7 +578,9 @@ class VideoGen:
 
     def _poll_job(self, task_id: str) -> str:
         url = _TASK_URL.format(task_id=task_id)
-        poll_headers = {"Authorization": f"Bearer {self.qwen_api_key}"}
+        # Must use the same key that submitted this task — a task_id is
+        # scoped to the account that created it, not shared across accounts.
+        poll_headers = {"Authorization": f"Bearer {self._last_used_key}"}
         deadline = time.monotonic() + MAX_POLL_SECONDS
 
         while time.monotonic() < deadline:

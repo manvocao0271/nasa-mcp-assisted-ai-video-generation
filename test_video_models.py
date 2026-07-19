@@ -37,9 +37,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import os
-
 from agent.video_gen import VideoGen, I2V_MODEL_PRIORITY, T2V_MODEL_PRIORITY
+from agent.qwen_client import _load_qwen_api_keys
 
 # apod.nasa.gov is NASA's own static archive, unchanged since the 90s —
 # about as stable as a public image URL gets. Swap via --image-url if needed.
@@ -113,12 +112,13 @@ def main() -> None:
     else:
         models = args.models
 
-    qwen_key = os.environ.get("QWEN_API_KEY", "")
-    if not qwen_key:
-        print("QWEN_API_KEY not set — check your .env file.")
+    _qwen_keys = _load_qwen_api_keys()
+    if not _qwen_keys:
+        print("No Qwen Cloud API key found — set QWEN_API_KEY, or QWEN_API_KEY_0 / "
+              "QWEN_API_KEY_1 / ... in .env for multi-account cycling.")
         sys.exit(1)
 
-    video_gen = VideoGen(qwen_key, poll_interval=5.0)
+    video_gen = VideoGen(_qwen_keys[0], poll_interval=5.0)
 
     results: list[tuple[str, bool, str]] = []
     for i, model in enumerate(models, start=1):

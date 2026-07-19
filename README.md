@@ -23,7 +23,7 @@ The UI has three persistent panels:
 
 Every frame is anchored to something real like terrain, weather, orbital context, which all gets assembled into a scene.
 
-![alt text](image.png) ![alt text](image-1.png) ![alt text](image-2.png)
+![Main Page](/Screenshot%202026-07-18%20181557.png) ![Chatting](/Screenshot%202026-07-18%20181244.png) ![Video Generation](/Screenshot%202026-07-18%20181321.png)
 
 ## System architecture
 

@@ -471,9 +471,8 @@ hr.studio-hr {
     border-left: 2px solid #2a2a2a;
     margin: 1px 0 4px;
     line-height: 1.5;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: break-word;
 }
 .log-warning {
     font-size: 0.73rem;
@@ -513,6 +512,18 @@ button[title="queue-trigger"] { display: none !important; pointer-events: none !
     overflow: hidden !important;
     padding: 0 !important;
     margin: 0 !important;
+}
+/* st.iframe() replaced components.html() (which used height=0 — fully
+   invisible). Streamlit's iframe validator now rejects 0, so the three
+   headless utility iframes (scroll-lock, image-click wiring, column-clamp/
+   auto-scroll) use height=1 instead — but a bare <iframe> has a default
+   browser border/inset groove that was invisible at 0px and shows as a
+   faint dash at 1px. Zero it out on every st.iframe element (safe for the
+   one real visible iframe — the suggestion carousel — too, since it was
+   never relying on a default border for anything). */
+[data-testid="stIFrame"], [data-testid="stIFrame"] iframe {
+    border: none !important;
+    outline: none !important;
 }
 """
 
