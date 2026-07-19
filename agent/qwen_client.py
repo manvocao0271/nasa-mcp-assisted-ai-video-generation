@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -133,6 +135,25 @@ def _is_cyclable_error(exc: Exception) -> bool:
     return "AllocationQuota" in msg or "FreeTier" in msg or "access_denied" in msg
 
 
+def _log_api_call(key: str, model: str, latency: float, status: str, request_id: str = "") -> None:
+    """Print one terminal log line per real Qwen Cloud API call — mirrors
+    the columns in DashScope's own console request log (Timestamp, Model,
+    API Key, Latency, Status, Request ID). Usage/token counts are
+    deliberately not logged here, matching what was asked for.
+
+    Key display: DashScope's console shows its own short numeric ID for a
+    key (e.g. "336906") — that's a dashboard-side identifier, not something
+    any API response returns to the client, so it can't be reproduced here.
+    Instead this shows a short, safe, locally-derived suffix of the actual
+    key (its last 6 characters) — enough to tell which configured key was
+    used without ever printing a full secret to the terminal.
+    """
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    key_display = f"...{key[-6:]}" if len(key) >= 6 else (key or "unknown")
+    req_display = request_id or "unknown"
+    print(f"[Qwen] {ts} | key {key_display} | {model} | {latency:.2f}s | {status} | req={req_display}")
+
+
 class QwenClient:
     """Synchronous Qwen Cloud chat client with token-usage tracking.
 
@@ -177,21 +198,34 @@ class QwenClient:
         Any other exception propagates immediately without cycling — an
         identical non-403 failure (bad request, model not found, etc.)
         would fail the same way on every account.
+
+        Every real attempt (success or failure) is logged via
+        _log_api_call — this is the single chokepoint all chat/vision
+        calls pass through, so logging here covers everything once
+        rather than duplicating it in chat()/stream() separately.
         """
         n = len(self._clients)
         last_exc: Exception | None = None
         for offset in range(n):
             idx = (self._current_key_idx + offset) % n
+            _t0 = time.monotonic()
             try:
                 result = make_request(self._clients[idx])
+                _latency = time.monotonic() - _t0
+                _req_id = getattr(result, "_request_id", "") or ""
+                _log_api_call(self._api_keys[idx], self.model, _latency, "200", _req_id)
                 self._current_key_idx = idx
                 return result
             except Exception as e:  # noqa: BLE001 - intentionally broad, see docstring
+                _latency = time.monotonic() - _t0
+                _status = str(getattr(e, "status_code", None) or "ERR")
+                _req_id = getattr(e, "request_id", "") or ""
+                _log_api_call(self._api_keys[idx], self.model, _latency, _status, _req_id)
                 last_exc = e
                 if not _is_cyclable_error(e):
                     raise
                 if n > 1:
-                    print(f"[QwenClient] key #{idx} of {n} blocked (403) on model '{self.model}' — trying next key")
+                    print(f"[QwenClient] key #{idx} blocked (403) on model '{self.model}' — trying next key")
                 continue
         # Every configured key failed with a cyclable (403) error.
         assert last_exc is not None

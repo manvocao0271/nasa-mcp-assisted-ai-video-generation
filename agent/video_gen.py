@@ -13,7 +13,7 @@ from typing import Callable
 
 import httpx
 
-from agent.qwen_client import _load_qwen_api_keys
+from agent.qwen_client import _load_qwen_api_keys, _log_api_call
 
 _DEFAULT_OUTPUT_DIR = Path("output")
 _DEFAULT_CLIPS_DIR = _DEFAULT_OUTPUT_DIR / "clips"
@@ -409,6 +409,15 @@ class VideoGen:
                 "AllocationQuota" in resp.text or "FreeTier" in resp.text
             )
 
+        def _extract_request_id(resp: httpx.Response) -> str:
+            """DashScope includes a top-level request_id in both success and
+            error response bodies — used for terminal logging, matching
+            the Request ID column in DashScope's own console log."""
+            try:
+                return resp.json().get("request_id", "") or ""
+            except Exception:
+                return ""
+
         def _submit_t2v_chain(client: httpx.Client) -> httpx.Response:
             """Try every T2V candidate in order; for each model, cycle
             through every configured API key (separate accounts have
@@ -421,11 +430,14 @@ class VideoGen:
             for _t2v_model in T2V_MODEL_PRIORITY:
                 _body = _t2v_body(_t2v_model)
                 for _key_idx, _key in enumerate(self._api_keys):
+                    _t0 = time.monotonic()
                     _resp = client.post(_SUBMIT_URL, json=_body, headers=self._headers_for(_key))
+                    _latency = time.monotonic() - _t0
+                    _log_api_call(_key, _t2v_model, _latency, str(_resp.status_code), _extract_request_id(_resp))
                     if _resp.is_success:
                         self.last_model_used = _t2v_model
                         self._last_used_key = _key
-                        print(f"[VideoGen] T2V submitted on {_t2v_model} using key #{_key_idx} of {len(self._api_keys)}")
+                        print(f"[VideoGen] T2V submitted on {_t2v_model} using key #{_key_idx}")
                         return _resp
                     _err = f"{_resp.status_code}: {_resp.text[:200]}"
                     if _is_quota_error(_resp):
@@ -454,7 +466,9 @@ class VideoGen:
                 # no fallback, raises on failure instead of trying anything else.
                 _body = _build_i2v_or_r2v_body(test_only_model) if media_url else _t2v_body(test_only_model)
                 _key = self._api_keys[0]
+                _t0 = time.monotonic()
                 resp = client.post(_SUBMIT_URL, json=_body, headers=self._headers_for(_key))
+                _log_api_call(_key, test_only_model, time.monotonic() - _t0, str(resp.status_code), _extract_request_id(resp))
                 if not resp.is_success:
                     raise RuntimeError(f"[TEST] {test_only_model} submit failed {resp.status_code}: {resp.text}")
                 self.last_model_used = test_only_model
@@ -473,11 +487,13 @@ class VideoGen:
                 for _model in I2V_MODEL_PRIORITY:
                     _body = _build_i2v_or_r2v_body(_model)
                     for _key_idx, _key in enumerate(self._api_keys):
+                        _t0 = time.monotonic()
                         resp = client.post(_SUBMIT_URL, json=_body, headers=self._headers_for(_key))
+                        _log_api_call(_key, _model, time.monotonic() - _t0, str(resp.status_code), _extract_request_id(resp))
                         if resp.is_success:
                             self.last_model_used = _model
                             self._last_used_key = _key
-                            print(f"[VideoGen] I2V submitted on {_model} using key #{_key_idx} of {len(self._api_keys)}")
+                            print(f"[VideoGen] I2V submitted on {_model} using key #{_key_idx}")
                             _i2v_success = True
                             break
                         err = f"{resp.status_code}: {resp.text[:200]}"
